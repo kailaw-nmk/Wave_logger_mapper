@@ -1,14 +1,14 @@
 'use client';
 
 import { MapContainer, TileLayer, CircleMarker, Polyline, Popup } from 'react-leaflet';
-import type { CsvRow } from '@/lib/csvParser';
+import type { AggregatedRow } from '@/lib/csvParser';
 import type { Metric } from '@/lib/colorScale';
 import { getColor, METRIC_LABELS } from '@/lib/colorScale';
 import Legend from './Legend';
 import 'leaflet/dist/leaflet.css';
 
 interface MapViewProps {
-  data: CsvRow[];
+  data: AggregatedRow[];
   metric: Metric;
 }
 
@@ -69,6 +69,7 @@ export default function MapView({ data, metric }: MapViewProps) {
                   {row.carrier && <p><b>キャリア:</b> {row.carrier}</p>}
                   {row.signal_dbm !== null && <p><b>電波:</b> {row.signal_dbm} dBm</p>}
                   {row.memo && <p><b>メモ:</b> {row.memo}</p>}
+                  {row.count > 1 && <p><b>計測回数:</b> {row.count}回 (平均値)</p>}
                 </div>
               </Popup>
             </CircleMarker>

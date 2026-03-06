@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import CsvUploader from '@/components/CsvUploader';
-import type { CsvRow } from '@/lib/csvParser';
-import { parseCsv } from '@/lib/csvParser';
+import type { AggregatedRow } from '@/lib/csvParser';
+import { parseCsv, aggregateByLocation } from '@/lib/csvParser';
 import type { Metric } from '@/lib/colorScale';
 import { METRIC_LABELS } from '@/lib/colorScale';
 
@@ -12,13 +12,13 @@ import { METRIC_LABELS } from '@/lib/colorScale';
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
 
 export default function Home() {
-  const [data, setData] = useState<CsvRow[]>([]);
+  const [data, setData] = useState<AggregatedRow[]>([]);
   const [metric, setMetric] = useState<Metric>('download_mbps');
   const [fileName, setFileName] = useState<string | null>(null);
 
   function handleFileLoaded(text: string, name: string) {
     const rows = parseCsv(text);
-    setData(rows);
+    setData(aggregateByLocation(rows));
     setFileName(name);
   }
 
