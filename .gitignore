@@ -21,3 +21,9 @@ __pycache__/
 tools/*.html
 
 .vercel
+
+# Claude Code
+.claude/
+
+# ログデータ（個人データ）
+log_sample/
