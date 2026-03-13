@@ -3,35 +3,75 @@
 import { useCallback, useRef, useState } from 'react';
 
 interface CsvUploaderProps {
-  onFileLoaded: (text: string, fileName: string) => void;
+  onFilesLoaded: (files: { text: string; fileName: string }[]) => void;
+  compact?: boolean;
 }
 
-export default function CsvUploader({ onFileLoaded }: CsvUploaderProps) {
+export default function CsvUploader({ onFilesLoaded, compact }: CsvUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = useCallback(
-    (file: File) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target?.result as string;
-        onFileLoaded(text, file.name);
-      };
-      reader.readAsText(file, 'utf-8');
+  const handleFiles = useCallback(
+    (fileList: FileList) => {
+      const promises = Array.from(fileList).map(
+        (file) =>
+          new Promise<{ text: string; fileName: string }>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              resolve({ text: e.target?.result as string, fileName: file.name });
+            };
+            reader.readAsText(file, 'utf-8');
+          }),
+      );
+      Promise.all(promises).then(onFilesLoaded);
     },
-    [onFileLoaded],
+    [onFilesLoaded],
   );
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
   }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    if (e.target.files && e.target.files.length > 0) {
+      handleFiles(e.target.files);
+    }
+    // inputをリセットして同じファイルを再選択可能にする
+    e.target.value = '';
+  }
+
+  if (compact) {
+    return (
+      <div
+        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
+        style={{
+          padding: '4px 12px',
+          border: `1px dashed ${isDragging ? '#2196F3' : '#ccc'}`,
+          borderRadius: 6,
+          cursor: 'pointer',
+          fontSize: 13,
+          color: '#666',
+          backgroundColor: isDragging ? '#e3f2fd' : 'transparent',
+          transition: 'all 0.2s',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        + CSVを追加
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".csv"
+          multiple
+          onChange={handleChange}
+          style={{ display: 'none' }}
+        />
+      </div>
+    );
   }
 
   return (
@@ -54,12 +94,13 @@ export default function CsvUploader({ onFileLoaded }: CsvUploaderProps) {
         CSVファイルをドラッグ&ドロップ
       </p>
       <p style={{ margin: '8px 0 0', fontSize: 13, color: '#999' }}>
-        またはクリックしてファイルを選択
+        またはクリックしてファイルを選択（複数可）
       </p>
       <input
         ref={inputRef}
         type="file"
         accept=".csv"
+        multiple
         onChange={handleChange}
         style={{ display: 'none' }}
       />

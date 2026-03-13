@@ -6,10 +6,15 @@ import { METRIC_LABELS, getLegendEntries } from '@/lib/colorScale';
 interface LegendProps {
   metric: Metric;
   pointCount: number;
+  fileCount?: number;
 }
 
-export default function Legend({ metric, pointCount }: LegendProps) {
+export default function Legend({ metric, pointCount, fileCount }: LegendProps) {
   const entries = getLegendEntries(metric);
+
+  const countLabel = fileCount && fileCount >= 2
+    ? `計測ポイント: ${pointCount}件 (${fileCount}ファイル)`
+    : `計測ポイント: ${pointCount}件`;
 
   return (
     <div style={{
@@ -34,7 +39,7 @@ export default function Legend({ metric, pointCount }: LegendProps) {
         ))}
       </div>
       <p style={{ margin: '8px 0 0 0', fontSize: 11, color: '#666' }}>
-        計測ポイント: {pointCount}件
+        {countLabel}
       </p>
     </div>
   );
