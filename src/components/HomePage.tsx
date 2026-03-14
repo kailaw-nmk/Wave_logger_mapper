@@ -5,18 +5,75 @@ import dynamic from 'next/dynamic';
 import CsvUploader from '@/components/CsvUploader';
 import type { CsvRow } from '@/lib/csvParser';
 import { parseCsv, aggregateByLocation } from '@/lib/csvParser';
+import type { MapBounds } from '@/components/MapView';
 import type { Metric } from '@/lib/colorScale';
 import { METRIC_LABELS } from '@/lib/colorScale';
 
 // Leafletはブラウザ専用のためSSR無効
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
+// SpeedChartもブラウザ専用のためSSR無効
+const SpeedChart = dynamic(() => import('@/components/SpeedChart'), { ssr: false });
+
+/** メトリックがping系かどうか */
+function isPingMetric(m: Metric): boolean {
+  return m === 'ping_ms' || m === 'udp_ping_ms';
+}
+
+/** メトリックの単位 */
+function metricUnit(m: Metric): string {
+  if (m === 'udp_packet_loss_pct') return '%';
+  if (isPingMetric(m) || m === 'udp_jitter_ms') return 'ms';
+  return 'Mbps';
+}
 
 export default function HomePage() {
   const [rawRows, setRawRows] = useState<CsvRow[]>([]);
   const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
   const [metric, setMetric] = useState<Metric>('download_mbps');
 
+  // フィルタ
+  const [filterEnabled, setFilterEnabled] = useState(false);
+  const [filterMax, setFilterMax] = useState<number>(50);
+
+  // チャート
+  const [showChart, setShowChart] = useState(false);
+  const [binSize, setBinSize] = useState<number>(50);
+
+  // チャート⇔マップ連動
+  const [highlightLngRange, setHighlightLngRange] = useState<[number, number] | null>(null);
+  const [selectedLng, setSelectedLng] = useState<number | null>(null);
+  const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
+
   const data = useMemo(() => aggregateByLocation(rawRows), [rawRows]);
+
+  // フィルタ後の集約データ（マップ用）
+  const filteredAggregated = useMemo(() => {
+    if (!filterEnabled) return data;
+    return data.filter((row) => {
+      const v = row[metric];
+      return v === null || v <= filterMax;
+    });
+  }, [data, filterEnabled, filterMax, metric]);
+
+  // フィルタ後の生データ（チャート用）
+  const filteredRaw = useMemo(() => {
+    if (!filterEnabled) return rawRows;
+    return rawRows.filter((row) => {
+      const v = row[metric];
+      return v === null || v <= filterMax;
+    });
+  }, [rawRows, filterEnabled, filterMax, metric]);
+
+  // マップ表示範囲内の生データ（チャート用）
+  const chartData = useMemo(() => {
+    if (!mapBounds) return filteredRaw;
+    return filteredRaw.filter((row) =>
+      row.latitude >= mapBounds.south &&
+      row.latitude <= mapBounds.north &&
+      row.longitude >= mapBounds.west &&
+      row.longitude <= mapBounds.east,
+    );
+  }, [filteredRaw, mapBounds]);
 
   const handleFilesLoaded = useCallback(
     (files: { text: string; fileName: string }[]) => {
@@ -52,6 +109,8 @@ export default function HomePage() {
   }
 
   const hasData = data.length > 0;
+  const unit = metricUnit(metric);
+  const filterStep = isPingMetric(metric) ? 10 : 5;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -85,6 +144,61 @@ export default function HomePage() {
                 <option key={m} value={m}>{METRIC_LABELS[m]}</option>
               ))}
             </select>
+
+            {/* フィルタUI */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={filterEnabled}
+                  onChange={(e) => setFilterEnabled(e.target.checked)}
+                />
+                フィルタ
+              </label>
+              {filterEnabled && (
+                <>
+                  <input
+                    type="number"
+                    value={filterMax}
+                    onChange={(e) => setFilterMax(Number(e.target.value))}
+                    step={filterStep}
+                    min={0}
+                    style={{
+                      width: 60,
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      border: '1px solid #ccc',
+                      fontSize: 13,
+                    }}
+                  />
+                  <span style={{ color: '#666' }}>{unit} 以下</span>
+                  <span style={{
+                    fontSize: 11,
+                    background: '#e0e7ff',
+                    color: '#3b4fc4',
+                    padding: '1px 6px',
+                    borderRadius: 8,
+                  }}>
+                    {filteredAggregated.length} / {data.length} 件
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* グラフ表示ボタン（全メトリクスで表示可能） */}
+            <button
+              onClick={() => setShowChart((v) => !v)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid #ccc',
+                background: showChart ? '#e0e7ff' : '#fff',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              {showChart ? '\u25B2 グラフ非表示' : '\u25BC グラフ表示'}
+            </button>
 
             <CsvUploader onFilesLoaded={handleFilesLoaded} compact />
 
@@ -131,7 +245,7 @@ export default function HomePage() {
       </header>
 
       {/* メインコンテンツ */}
-      <main style={{ flex: 1, position: 'relative' }}>
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {!hasData ? (
           <div style={{
             display: 'flex',
@@ -153,7 +267,103 @@ export default function HomePage() {
             </div>
           </div>
         ) : (
-          <MapView data={data} metric={metric} rawRows={rawRows} fileCount={loadedFiles.length} />
+          <>
+            {/* マップエリア */}
+            <div style={{
+              flex: showChart ? '0 0 55%' : '1 1 auto',
+              position: 'relative',
+              minHeight: 160,
+            }}>
+              <MapView
+                data={filteredAggregated}
+                metric={metric}
+                rawRows={filteredRaw}
+                fileCount={loadedFiles.length}
+                highlightLngRange={highlightLngRange}
+                onPointClick={setSelectedLng}
+                onBoundsChange={setMapBounds}
+              />
+              {/* フィルタ適用中バッジ */}
+              {filterEnabled && (
+                <div style={{
+                  position: 'absolute',
+                  top: 10,
+                  right: 10,
+                  zIndex: 1000,
+                  background: 'rgba(255, 255, 255, 0.95)',
+                  border: '1px solid #3b82f6',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  color: '#1e40af',
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
+                }}>
+                  フィルタ適用中: {METRIC_LABELS[metric]} ≤ {filterMax} {unit}
+                </div>
+              )}
+            </div>
+
+            {/* チャートパネル */}
+            {showChart && (
+              <div style={{
+                flex: '0 0 45%',
+                borderTop: '2px solid #e0e0e0',
+                display: 'flex',
+                flexDirection: 'column',
+              }}>
+                {/* チャートヘッダー */}
+                <div style={{
+                  padding: '6px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                  background: '#fafafa',
+                  borderBottom: '1px solid #eee',
+                }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>
+                    東西方向 vs {METRIC_LABELS[metric]}
+                  </span>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                    集計幅:
+                    <input
+                      type="number"
+                      value={binSize}
+                      onChange={(e) => setBinSize(Math.max(1, Number(e.target.value)))}
+                      min={1}
+                      step={10}
+                      style={{
+                        width: 56,
+                        padding: '2px 4px',
+                        borderRadius: 4,
+                        border: '1px solid #ccc',
+                        fontSize: 12,
+                      }}
+                    />
+                    px
+                  </label>
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 12, fontSize: 11, color: '#666' }}>
+                    <span><span style={{ display: 'inline-block', width: 12, height: 8, background: 'rgba(59,130,246,0.4)', border: '1px solid #3b82f6', marginRight: 3, verticalAlign: 'middle' }} />IQR (Q1-Q3)</span>
+                    <span><span style={{ display: 'inline-block', width: 12, height: 0, borderTop: '2px solid #ef4444', marginRight: 3, verticalAlign: 'middle' }} />中央値</span>
+                    <span><span style={{ display: 'inline-block', width: 0, height: 10, borderLeft: '1.5px solid #555', marginRight: 3, verticalAlign: 'middle' }} />最小-最大</span>
+                  </div>
+                </div>
+                {/* チャート本体 */}
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                  <SpeedChart
+                    data={chartData}
+                    metric={metric}
+                    binWidthPx={binSize}
+                    westLng={mapBounds?.west ?? 0}
+                    eastLng={mapBounds?.east ?? 0}
+                    containerWidth={mapBounds?.containerWidth ?? 800}
+                    onBinHover={setHighlightLngRange}
+                    selectedLng={selectedLng}
+                  />
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
     </div>

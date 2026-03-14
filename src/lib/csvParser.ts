@@ -127,3 +127,180 @@ function averageNullable(values: (number | null)[]): number | null {
   if (valid.length === 0) return null;
   return valid.reduce((sum, v) => sum + v, 0) / valid.length;
 }
+
+// ── 箱ひげ図チャート用 ──
+
+import type { Metric } from '@/lib/colorScale';
+
+/** 箱ひげ図用ビンデータ */
+export interface BinData {
+  /** 西端からの距離（メートル）— X軸表示用 */
+  distanceM: number;
+  /** ビン中央の経度 */
+  lngCenter: number;
+  /** ビン経度の最小値 */
+  lngMin: number;
+  /** ビン経度の最大値 */
+  lngMax: number;
+  min: number;
+  q1: number;
+  median: number;
+  q3: number;
+  max: number;
+  mean: number;
+  count: number;
+}
+
+/** binByLongitude の戻り値 */
+export interface BinResult {
+  bins: BinData[];
+  minLng: number;
+  metersPerDegreeLng: number;
+}
+
+/** 線形補間で分位数を計算する */
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  if (sorted.length === 1) return sorted[0];
+  const idx = (sorted.length - 1) * p;
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  const frac = idx - lo;
+  return sorted[lo] * (1 - frac) + sorted[hi] * frac;
+}
+
+/** 経度方向にビン分割して箱ひげ図用の統計量を計算する */
+export function binByLongitude(
+  rows: CsvRow[],
+  binSizeM: number,
+  metricKey: Metric,
+): BinResult {
+  // メトリックが有効な行のみ抽出
+  const valid = rows.filter((r) => r[metricKey] !== null);
+  if (valid.length === 0) return { bins: [], minLng: 0, metersPerDegreeLng: 1 };
+
+  // 平均緯度から経度1度あたりのメートルを算出
+  const avgLat = valid.reduce((s, r) => s + r.latitude, 0) / valid.length;
+  const metersPerDegreeLng = 111320 * Math.cos((avgLat * Math.PI) / 180);
+
+  const minLng = Math.min(...valid.map((r) => r.longitude));
+  const degreesPerBin = binSizeM / metersPerDegreeLng;
+
+  // ビンに振り分け
+  const bins = new Map<number, number[]>();
+  const binLngs = new Map<number, number[]>();
+  for (const row of valid) {
+    const binIdx = Math.floor((row.longitude - minLng) / degreesPerBin);
+    const val = row[metricKey] as number;
+    if (!bins.has(binIdx)) {
+      bins.set(binIdx, []);
+      binLngs.set(binIdx, []);
+    }
+    bins.get(binIdx)!.push(val);
+    binLngs.get(binIdx)!.push(row.longitude);
+  }
+
+  // 各ビンの統計量を計算
+  const result: BinData[] = [];
+  for (const [binIdx, values] of bins.entries()) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const lngs = binLngs.get(binIdx)!;
+    const lngCenter = lngs.reduce((s, v) => s + v, 0) / lngs.length;
+    result.push({
+      distanceM: (lngCenter - minLng) * metersPerDegreeLng,
+      lngCenter,
+      lngMin: Math.min(...lngs),
+      lngMax: Math.max(...lngs),
+      min: sorted[0],
+      q1: percentile(sorted, 0.25),
+      median: percentile(sorted, 0.5),
+      q3: percentile(sorted, 0.75),
+      max: sorted[sorted.length - 1],
+      mean: values.reduce((s, v) => s + v, 0) / values.length,
+      count: values.length,
+    });
+  }
+
+  // 西から東（binIdx昇順）でソート
+  result.sort((a, b) => a.distanceM - b.distanceM);
+  return { bins: result, minLng, metersPerDegreeLng };
+}
+
+// ── ピクセルベースビン集計 ──
+
+/** ピクセルベースの箱ひげ図用ビンデータ */
+export interface PixelBinData {
+  /** ビン中央のピクセルX座標 */
+  pixelX: number;
+  lngCenter: number;
+  lngMin: number;
+  lngMax: number;
+  min: number;
+  q1: number;
+  median: number;
+  q3: number;
+  max: number;
+  mean: number;
+  count: number;
+}
+
+/** 経度をピクセルベースでビン分割して箱ひげ図用の統計量を計算する */
+export function binByPixel(
+  rows: CsvRow[],
+  westLng: number,
+  eastLng: number,
+  containerWidth: number,
+  binWidthPx: number,
+  metricKey: Metric,
+): { bins: PixelBinData[] } {
+  const lngRange = eastLng - westLng;
+  if (lngRange <= 0 || containerWidth <= 0 || binWidthPx <= 0) {
+    return { bins: [] };
+  }
+
+  // メトリックが有効な行のみ抽出
+  const valid = rows.filter((r) => r[metricKey] !== null);
+  if (valid.length === 0) return { bins: [] };
+
+  // ビンに振り分け
+  const binValues = new Map<number, number[]>();
+  const binLngs = new Map<number, number[]>();
+
+  for (const row of valid) {
+    const px = ((row.longitude - westLng) / lngRange) * containerWidth;
+    const binIdx = Math.floor(px / binWidthPx);
+    if (binIdx < 0 || binIdx * binWidthPx >= containerWidth) continue;
+
+    const val = row[metricKey] as number;
+    if (!binValues.has(binIdx)) {
+      binValues.set(binIdx, []);
+      binLngs.set(binIdx, []);
+    }
+    binValues.get(binIdx)!.push(val);
+    binLngs.get(binIdx)!.push(row.longitude);
+  }
+
+  // 各ビンの統計量を計算
+  const bins: PixelBinData[] = [];
+  for (const [binIdx, values] of binValues.entries()) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const lngs = binLngs.get(binIdx)!;
+    bins.push({
+      pixelX: (binIdx + 0.5) * binWidthPx,
+      lngCenter: lngs.reduce((s, v) => s + v, 0) / lngs.length,
+      lngMin: Math.min(...lngs),
+      lngMax: Math.max(...lngs),
+      min: sorted[0],
+      q1: percentile(sorted, 0.25),
+      median: percentile(sorted, 0.5),
+      q3: percentile(sorted, 0.75),
+      max: sorted[sorted.length - 1],
+      mean: values.reduce((s, v) => s + v, 0) / values.length,
+      count: values.length,
+    });
+  }
+
+  // ピクセルX昇順でソート
+  bins.sort((a, b) => a.pixelX - b.pixelX);
+  return { bins };
+}

@@ -1,17 +1,62 @@
 'use client';
 
-import { MapContainer, TileLayer, CircleMarker, Polyline, Popup } from 'react-leaflet';
+import { useMemo, useCallback, useEffect } from 'react';
+import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, Rectangle, useMap, useMapEvents } from 'react-leaflet';
+import type { LatLngBounds } from 'leaflet';
 import type { AggregatedRow, CsvRow } from '@/lib/csvParser';
 import type { Metric } from '@/lib/colorScale';
 import { getColor, METRIC_LABELS } from '@/lib/colorScale';
 import Legend from './Legend';
 import 'leaflet/dist/leaflet.css';
 
+/** マップの表示範囲 */
+export interface MapBounds {
+  south: number;
+  north: number;
+  west: number;
+  east: number;
+  containerWidth: number;
+}
+
 interface MapViewProps {
   data: AggregatedRow[];
   metric: Metric;
   rawRows: CsvRow[];
   fileCount: number;
+  highlightLngRange?: [number, number] | null;
+  onPointClick?: (lng: number) => void;
+  onBoundsChange?: (bounds: MapBounds) => void;
+}
+
+/** マップのmoveend/zoomendイベントを監視して表示範囲を通知する */
+function BoundsWatcher({ onChange }: { onChange: (bounds: MapBounds) => void }) {
+  const map = useMap();
+
+  const toBounds = useCallback((): MapBounds => {
+    const b = map.getBounds();
+    return {
+      south: b.getSouth(),
+      north: b.getNorth(),
+      west: b.getWest(),
+      east: b.getEast(),
+      containerWidth: map.getSize().x,
+    };
+  }, [map]);
+
+  // 初回マウント時に現在の表示範囲を通知
+  useEffect(() => {
+    onChange(toBounds());
+  }, [map, onChange, toBounds]);
+
+  useMapEvents({
+    moveend() {
+      onChange(toBounds());
+    },
+    resize() {
+      onChange(toBounds());
+    },
+  });
+  return null;
 }
 
 /** _sourceFile + vehicle_id でグループ化してポリライン用座標を生成する */
@@ -35,13 +80,23 @@ function fmt(v: number | null): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 }
 
-export default function MapView({ data, metric, rawRows, fileCount }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange }: MapViewProps) {
+  const polylineGroups = buildPolylineGroups(rawRows);
+
+  // ハイライト矩形の緯度範囲を計算（データ全体の緯度範囲 + 余白）
+  const latBounds = useMemo(() => {
+    if (data.length === 0) return { min: 0, max: 0 };
+    const lats = data.map((r) => r.latitude);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const padding = (maxLat - minLat) * 0.1 || 0.001;
+    return { min: minLat - padding, max: maxLat + padding };
+  }, [data]);
+
   if (data.length === 0) return null;
 
   const centerLat = data.reduce((sum, r) => sum + r.latitude, 0) / data.length;
   const centerLng = data.reduce((sum, r) => sum + r.longitude, 0) / data.length;
-
-  const polylineGroups = buildPolylineGroups(rawRows);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -50,6 +105,7 @@ export default function MapView({ data, metric, rawRows, fileCount }: MapViewPro
         zoom={14}
         style={{ width: '100%', height: '100%' }}
       >
+        {onBoundsChange && <BoundsWatcher onChange={onBoundsChange} />}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -69,6 +125,22 @@ export default function MapView({ data, metric, rawRows, fileCount }: MapViewPro
           ) : null,
         )}
 
+        {/* チャートホバー時の経度帯ハイライト */}
+        {highlightLngRange && (
+          <Rectangle
+            bounds={[
+              [latBounds.min, highlightLngRange[0]],
+              [latBounds.max, highlightLngRange[1]],
+            ]}
+            pathOptions={{
+              fillColor: '#3b82f6',
+              fillOpacity: 0.15,
+              color: '#3b82f6',
+              weight: 2,
+            }}
+          />
+        )}
+
         {/* 計測ポイント */}
         {data.map((row, i) => {
           const value = row[metric];
@@ -83,6 +155,11 @@ export default function MapView({ data, metric, rawRows, fileCount }: MapViewPro
               color={color}
               fillColor={color}
               fillOpacity={0.7}
+              eventHandlers={{
+                click: () => {
+                  if (onPointClick) onPointClick(row.longitude);
+                },
+              }}
             >
               <Popup maxWidth={320}>
                 <div style={{ fontSize: 13, lineHeight: 1.6 }}>
