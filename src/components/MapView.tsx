@@ -28,6 +28,25 @@ interface MapViewProps {
   onBoundsChange?: (bounds: MapBounds) => void;
 }
 
+/** データ変更時に地図をデータ範囲にフィットさせる */
+function FitBounds({ data }: { data: AggregatedRow[] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (data.length === 0) return;
+    const lats = data.map((r) => r.latitude);
+    const lngs = data.map((r) => r.longitude);
+    const L = require('leaflet') as typeof import('leaflet');
+    const bounds = L.latLngBounds(
+      [Math.min(...lats), Math.min(...lngs)],
+      [Math.max(...lats), Math.max(...lngs)],
+    );
+    map.fitBounds(bounds, { padding: [30, 30] });
+  }, [data, map]);
+
+  return null;
+}
+
 /** マップのmoveend/zoomendイベントを監視して表示範囲を通知する */
 function BoundsWatcher({ onChange }: { onChange: (bounds: MapBounds) => void }) {
   const map = useMap();
@@ -105,6 +124,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         zoom={14}
         style={{ width: '100%', height: '100%' }}
       >
+        <FitBounds data={data} />
         {onBoundsChange && <BoundsWatcher onChange={onBoundsChange} />}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'

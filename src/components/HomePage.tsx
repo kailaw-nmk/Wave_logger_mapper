@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import CsvUploader from '@/components/CsvUploader';
 import type { CsvRow } from '@/lib/csvParser';
@@ -17,6 +17,11 @@ const SpeedChart = dynamic(() => import('@/components/SpeedChart'), { ssr: false
 /** メトリックがping系かどうか */
 function isPingMetric(m: Metric): boolean {
   return m === 'ping_ms' || m === 'udp_ping_ms';
+}
+
+/** 値が大きいほど悪いメトリクスか（ping/jitter/packet loss） */
+function isHigherWorse(m: Metric): boolean {
+  return m === 'ping_ms' || m === 'udp_ping_ms' || m === 'udp_jitter_ms' || m === 'udp_packet_loss_pct';
 }
 
 /** メトリックの単位 */
@@ -44,23 +49,52 @@ export default function HomePage() {
   const [selectedLng, setSelectedLng] = useState<number | null>(null);
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
 
+  // ドラッグリサイズ
+  const [mapHeightPercent, setMapHeightPercent] = useState(55);
+  const mainRef = useRef<HTMLElement>(null);
+  const draggingRef = useRef(false);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!draggingRef.current || !mainRef.current) return;
+      const rect = mainRef.current.getBoundingClientRect();
+      const percent = ((e.clientY - rect.top) / rect.height) * 100;
+      setMapHeightPercent(Math.min(80, Math.max(20, percent)));
+    };
+    const handleMouseUp = () => {
+      if (draggingRef.current) {
+        draggingRef.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
   const data = useMemo(() => aggregateByLocation(rawRows), [rawRows]);
 
   // フィルタ後の集約データ（マップ用）
   const filteredAggregated = useMemo(() => {
     if (!filterEnabled) return data;
+    const higherWorse = isHigherWorse(metric);
     return data.filter((row) => {
       const v = row[metric];
-      return v === null || v <= filterMax;
+      return v === null || (higherWorse ? v >= filterMax : v <= filterMax);
     });
   }, [data, filterEnabled, filterMax, metric]);
 
   // フィルタ後の生データ（チャート用）
   const filteredRaw = useMemo(() => {
     if (!filterEnabled) return rawRows;
+    const higherWorse = isHigherWorse(metric);
     return rawRows.filter((row) => {
       const v = row[metric];
-      return v === null || v <= filterMax;
+      return v === null || (higherWorse ? v >= filterMax : v <= filterMax);
     });
   }, [rawRows, filterEnabled, filterMax, metric]);
 
@@ -171,7 +205,7 @@ export default function HomePage() {
                       fontSize: 13,
                     }}
                   />
-                  <span style={{ color: '#666' }}>{unit} 以下</span>
+                  <span style={{ color: '#666' }}>{unit} {isHigherWorse(metric) ? '以上' : '以下'}</span>
                   <span style={{
                     fontSize: 11,
                     background: '#e0e7ff',
@@ -245,7 +279,7 @@ export default function HomePage() {
       </header>
 
       {/* メインコンテンツ */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <main ref={mainRef} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {!hasData ? (
           <div style={{
             display: 'flex',
@@ -270,7 +304,7 @@ export default function HomePage() {
           <>
             {/* マップエリア */}
             <div style={{
-              flex: showChart ? '0 0 55%' : '1 1 auto',
+              flex: showChart ? `0 0 ${mapHeightPercent}%` : '1 1 auto',
               position: 'relative',
               minHeight: 160,
             }}>
@@ -298,16 +332,45 @@ export default function HomePage() {
                   color: '#1e40af',
                   boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
                 }}>
-                  フィルタ適用中: {METRIC_LABELS[metric]} ≤ {filterMax} {unit}
+                  フィルタ適用中: {METRIC_LABELS[metric]} {isHigherWorse(metric) ? '≥' : '≤'} {filterMax} {unit}
                 </div>
               )}
             </div>
 
+            {/* ドラッグハンドル */}
+            {showChart && (
+              <div
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  draggingRef.current = true;
+                  document.body.style.cursor = 'row-resize';
+                  document.body.style.userSelect = 'none';
+                }}
+                style={{
+                  flex: '0 0 8px',
+                  cursor: 'row-resize',
+                  background: '#e0e0e0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.15s',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = '#bbb'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = '#e0e0e0'; }}
+              >
+                {/* グリップインジケーター */}
+                <div style={{ display: 'flex', gap: 3 }}>
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} style={{ width: 4, height: 4, borderRadius: '50%', background: '#999' }} />
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* チャートパネル */}
             {showChart && (
               <div style={{
-                flex: '0 0 45%',
-                borderTop: '2px solid #e0e0e0',
+                flex: `0 0 ${100 - mapHeightPercent}%`,
                 display: 'flex',
                 flexDirection: 'column',
               }}>
