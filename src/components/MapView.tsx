@@ -1,11 +1,14 @@
 'use client';
 
 import { useMemo, useCallback, useEffect } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, Rectangle, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Popup, Rectangle, useMap, useMapEvents } from 'react-leaflet';
 import type { LatLngBounds } from 'leaflet';
 import type { AggregatedRow, CsvRow } from '@/lib/csvParser';
 import type { Metric } from '@/lib/colorScale';
 import { getColor, METRIC_LABELS } from '@/lib/colorScale';
+import type { GroupMode, GroupStyle } from '@/lib/groupStyle';
+import { getGroupKey } from '@/lib/groupStyle';
+import { createShapeIcon } from '@/lib/svgMarkerIcon';
 import Legend from './Legend';
 import 'leaflet/dist/leaflet.css';
 
@@ -26,6 +29,8 @@ interface MapViewProps {
   highlightLngRange?: [number, number] | null;
   onPointClick?: (lng: number) => void;
   onBoundsChange?: (bounds: MapBounds) => void;
+  groupMode?: GroupMode;
+  groupStyles?: Map<string, GroupStyle>;
 }
 
 /** データ変更時に地図をデータ範囲にフィットさせる */
@@ -78,17 +83,24 @@ function BoundsWatcher({ onChange }: { onChange: (bounds: MapBounds) => void }) 
   return null;
 }
 
+/** ポリライングループ */
+interface PolylineGroup {
+  coords: [number, number][];
+  sourceFile: string;
+  vehicleId: string;
+}
+
 /** _sourceFile + vehicle_id でグループ化してポリライン用座標を生成する */
-function buildPolylineGroups(rawRows: CsvRow[]): [number, number][][] {
-  const groups = new Map<string, [number, number][]>();
+function buildPolylineGroups(rawRows: CsvRow[]): PolylineGroup[] {
+  const groups = new Map<string, PolylineGroup>();
   for (const row of rawRows) {
     const key = `${row._sourceFile}::${row.vehicle_id}`;
-    let coords = groups.get(key);
-    if (!coords) {
-      coords = [];
-      groups.set(key, coords);
+    let group = groups.get(key);
+    if (!group) {
+      group = { coords: [], sourceFile: row._sourceFile, vehicleId: row.vehicle_id };
+      groups.set(key, group);
     }
-    coords.push([row.latitude, row.longitude]);
+    group.coords.push([row.latitude, row.longitude]);
   }
   return Array.from(groups.values());
 }
@@ -99,7 +111,7 @@ function fmt(v: number | null): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // ハイライト矩形の緯度範囲を計算（データ全体の緯度範囲 + 余白）
@@ -132,18 +144,26 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         />
 
         {/* 軌跡の線（ファイル+車両ごと） */}
-        {polylineGroups.map((coords, i) =>
-          coords.length > 1 ? (
+        {polylineGroups.map((group, i) => {
+          if (group.coords.length <= 1) return null;
+          // グループモード時はポリラインの色をグループ色にする
+          let lineColor = '#6b7280';
+          if (groupMode !== 'none' && groupStyles) {
+            const gKey = groupMode === 'vehicle' ? group.vehicleId : group.sourceFile;
+            const style = gKey ? groupStyles.get(gKey) : undefined;
+            if (style) lineColor = style.borderColor;
+          }
+          return (
             <Polyline
               key={`polyline-${i}`}
-              positions={coords}
+              positions={group.coords}
               weight={2}
-              color="#6b7280"
+              color={lineColor}
               opacity={0.5}
               dashArray="5 10"
             />
-          ) : null,
-        )}
+          );
+        })}
 
         {/* チャートホバー時の経度帯ハイライト */}
         {highlightLngRange && (
@@ -165,58 +185,82 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         {data.map((row, i) => {
           const value = row[metric];
           if (value === null) return null;
-          const color = getColor(value, metric);
+          const fillColor = getColor(value, metric);
 
+          const popupContent = (
+            <Popup maxWidth={320}>
+              <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+                {/* 基本情報 */}
+                <p style={{ margin: 0, fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>基本情報</p>
+                <p style={{ margin: 0 }}><b>日時:</b> {row.timestamp}</p>
+                {row.vehicle_ids.length > 0 && <p style={{ margin: 0 }}><b>車両:</b> {row.vehicle_ids.join(', ')}</p>}
+                {row.route_types.length > 0 && <p style={{ margin: 0 }}><b>ルート:</b> {row.route_types.join(', ')}</p>}
+                <p style={{ margin: 0 }}><b>接続:</b> {row.connection_type}</p>
+                {row.cellular_gen && <p style={{ margin: 0 }}><b>世代:</b> {row.cellular_gen}</p>}
+                {row.carrier && <p style={{ margin: 0 }}><b>キャリア:</b> {row.carrier}</p>}
+                {row.signal_dbm !== null && <p style={{ margin: 0 }}><b>電波:</b> {fmt(row.signal_dbm)} dBm</p>}
+
+                {/* TCP計測 */}
+                <p style={{ margin: '6px 0 0', fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>TCP計測</p>
+                <p style={{ margin: 0 }}><b>DL:</b> {fmt(row.download_mbps)} Mbps</p>
+                <p style={{ margin: 0 }}><b>UL:</b> {fmt(row.upload_mbps)} Mbps</p>
+                <p style={{ margin: 0 }}><b>Ping:</b> {fmt(row.ping_ms)} ms</p>
+
+                {/* UDP計測 */}
+                <p style={{ margin: '6px 0 0', fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>UDP計測</p>
+                <p style={{ margin: 0 }}><b>DL:</b> {fmt(row.udp_download_mbps)} Mbps</p>
+                <p style={{ margin: 0 }}><b>UL:</b> {fmt(row.udp_upload_mbps)} Mbps</p>
+                <p style={{ margin: 0 }}><b>Ping:</b> {fmt(row.udp_ping_ms)} ms</p>
+                <p style={{ margin: 0 }}><b>Jitter:</b> {fmt(row.udp_jitter_ms)} ms</p>
+                <p style={{ margin: 0 }}><b>パケットロス:</b> {fmt(row.udp_packet_loss_pct)} %</p>
+
+                {row.memo && <p style={{ margin: '6px 0 0' }}><b>メモ:</b> {row.memo}</p>}
+                {row.count > 1 && <p style={{ margin: '4px 0 0', color: '#888' }}><b>計測回数:</b> {row.count}回 (平均値)</p>}
+              </div>
+            </Popup>
+          );
+
+          // グループモード時: 形状アイコン付きMarker
+          if (groupMode !== 'none' && groupStyles) {
+            const gKey = getGroupKey(row, groupMode);
+            const style = gKey ? groupStyles.get(gKey) : undefined;
+            if (style) {
+              const icon = createShapeIcon(style.shape, fillColor, style.borderColor);
+              return (
+                <Marker
+                  key={i}
+                  position={[row.latitude, row.longitude]}
+                  icon={icon}
+                  eventHandlers={{
+                    click: () => { if (onPointClick) onPointClick(row.longitude); },
+                  }}
+                >
+                  {popupContent}
+                </Marker>
+              );
+            }
+          }
+
+          // 通常モード: CircleMarker
           return (
             <CircleMarker
               key={i}
               center={[row.latitude, row.longitude]}
               radius={10}
-              color={color}
-              fillColor={color}
+              color={fillColor}
+              fillColor={fillColor}
               fillOpacity={0.7}
               eventHandlers={{
-                click: () => {
-                  if (onPointClick) onPointClick(row.longitude);
-                },
+                click: () => { if (onPointClick) onPointClick(row.longitude); },
               }}
             >
-              <Popup maxWidth={320}>
-                <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-                  {/* 基本情報 */}
-                  <p style={{ margin: 0, fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>基本情報</p>
-                  <p style={{ margin: 0 }}><b>日時:</b> {row.timestamp}</p>
-                  {row.vehicle_ids.length > 0 && <p style={{ margin: 0 }}><b>車両:</b> {row.vehicle_ids.join(', ')}</p>}
-                  {row.route_types.length > 0 && <p style={{ margin: 0 }}><b>ルート:</b> {row.route_types.join(', ')}</p>}
-                  <p style={{ margin: 0 }}><b>接続:</b> {row.connection_type}</p>
-                  {row.cellular_gen && <p style={{ margin: 0 }}><b>世代:</b> {row.cellular_gen}</p>}
-                  {row.carrier && <p style={{ margin: 0 }}><b>キャリア:</b> {row.carrier}</p>}
-                  {row.signal_dbm !== null && <p style={{ margin: 0 }}><b>電波:</b> {fmt(row.signal_dbm)} dBm</p>}
-
-                  {/* TCP計測 */}
-                  <p style={{ margin: '6px 0 0', fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>TCP計測</p>
-                  <p style={{ margin: 0 }}><b>DL:</b> {fmt(row.download_mbps)} Mbps</p>
-                  <p style={{ margin: 0 }}><b>UL:</b> {fmt(row.upload_mbps)} Mbps</p>
-                  <p style={{ margin: 0 }}><b>Ping:</b> {fmt(row.ping_ms)} ms</p>
-
-                  {/* UDP計測 */}
-                  <p style={{ margin: '6px 0 0', fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>UDP計測</p>
-                  <p style={{ margin: 0 }}><b>DL:</b> {fmt(row.udp_download_mbps)} Mbps</p>
-                  <p style={{ margin: 0 }}><b>UL:</b> {fmt(row.udp_upload_mbps)} Mbps</p>
-                  <p style={{ margin: 0 }}><b>Ping:</b> {fmt(row.udp_ping_ms)} ms</p>
-                  <p style={{ margin: 0 }}><b>Jitter:</b> {fmt(row.udp_jitter_ms)} ms</p>
-                  <p style={{ margin: 0 }}><b>パケットロス:</b> {fmt(row.udp_packet_loss_pct)} %</p>
-
-                  {row.memo && <p style={{ margin: '6px 0 0' }}><b>メモ:</b> {row.memo}</p>}
-                  {row.count > 1 && <p style={{ margin: '4px 0 0', color: '#888' }}><b>計測回数:</b> {row.count}回 (平均値)</p>}
-                </div>
-              </Popup>
+              {popupContent}
             </CircleMarker>
           );
         })}
       </MapContainer>
 
-      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} />
+      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} />
     </div>
   );
 }

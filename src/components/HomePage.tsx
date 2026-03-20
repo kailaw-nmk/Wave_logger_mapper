@@ -8,6 +8,8 @@ import { parseCsv, aggregateByLocation } from '@/lib/csvParser';
 import type { MapBounds } from '@/components/MapView';
 import type { Metric } from '@/lib/colorScale';
 import { METRIC_LABELS } from '@/lib/colorScale';
+import type { GroupMode } from '@/lib/groupStyle';
+import { assignGroupStyles } from '@/lib/groupStyle';
 
 // Leafletはブラウザ専用のためSSR無効
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
@@ -35,6 +37,9 @@ export default function HomePage() {
   const [rawRows, setRawRows] = useState<CsvRow[]>([]);
   const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
   const [metric, setMetric] = useState<Metric>('download_mbps');
+
+  // グループモード
+  const [groupMode, setGroupMode] = useState<GroupMode>('none');
 
   // フィルタ
   const [filterEnabled, setFilterEnabled] = useState(false);
@@ -77,6 +82,17 @@ export default function HomePage() {
   }, []);
 
   const data = useMemo(() => aggregateByLocation(rawRows), [rawRows]);
+
+  // グループスタイルを計算
+  const groupStyles = useMemo(() => {
+    if (groupMode === 'none') return new Map();
+    const keys = new Set<string>();
+    for (const row of rawRows) {
+      const key = groupMode === 'vehicle' ? row.vehicle_id : row._sourceFile;
+      if (key) keys.add(key);
+    }
+    return assignGroupStyles(Array.from(keys));
+  }, [rawRows, groupMode]);
 
   // フィルタ後の集約データ（マップ用）
   const filteredAggregated = useMemo(() => {
@@ -219,6 +235,22 @@ export default function HomePage() {
               )}
             </div>
 
+            {/* グループ表示 */}
+            <select
+              value={groupMode}
+              onChange={(e) => setGroupMode(e.target.value as GroupMode)}
+              style={{
+                padding: '4px 8px',
+                borderRadius: 6,
+                border: '1px solid #ccc',
+                fontSize: 13,
+              }}
+            >
+              <option value="none">グループ: なし</option>
+              <option value="vehicle">グループ: 車両ID</option>
+              <option value="file">グループ: ファイル</option>
+            </select>
+
             {/* グラフ表示ボタン（全メトリクスで表示可能） */}
             <button
               onClick={() => setShowChart((v) => !v)}
@@ -316,6 +348,8 @@ export default function HomePage() {
                 highlightLngRange={highlightLngRange}
                 onPointClick={setSelectedLng}
                 onBoundsChange={setMapBounds}
+                groupMode={groupMode}
+                groupStyles={groupStyles}
               />
               {/* フィルタ適用中バッジ */}
               {filterEnabled && (
