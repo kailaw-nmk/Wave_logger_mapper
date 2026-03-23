@@ -216,6 +216,26 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
 
                 {row.memo && <p style={{ margin: '6px 0 0' }}><b>メモ:</b> {row.memo}</p>}
                 {row.count > 1 && <p style={{ margin: '4px 0 0', color: '#888' }}><b>計測回数:</b> {row.count}回 (平均値)</p>}
+                <a
+                  href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${row.latitude},${row.longitude}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    marginTop: 8,
+                    padding: '6px 12px',
+                    background: '#4285f4',
+                    color: '#fff',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                  }}
+                >
+                  📍 ストリートビューを開く
+                </a>
               </div>
             </Popup>
           );
