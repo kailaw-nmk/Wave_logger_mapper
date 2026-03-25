@@ -187,7 +187,8 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         {data.map((row, i) => {
           const value = row[metric];
           if (value === null && !showNaPoints) return null;
-          const fillColor = value === null ? '#6b7280' : getColor(value, metric, thresholds);
+          // 不通フィルタ時は全マーカーをグレーで描画
+          const fillColor = showNaPoints ? '#6b7280' : getColor(value!, metric, thresholds);
 
           const popupContent = (
             <Popup maxWidth={320}>
@@ -250,7 +251,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
               const icon = createShapeIcon(style.shape, fillColor, style.borderColor);
               return (
                 <Marker
-                  key={i}
+                  key={`${i}-${fillColor}`}
                   position={[row.latitude, row.longitude]}
                   icon={icon}
                   eventHandlers={{
@@ -266,12 +267,10 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           // 通常モード: CircleMarker
           return (
             <CircleMarker
-              key={i}
+              key={`${i}-${fillColor}`}
               center={[row.latitude, row.longitude]}
               radius={10}
-              color={fillColor}
-              fillColor={fillColor}
-              fillOpacity={0.7}
+              pathOptions={{ color: fillColor, fillColor, fillOpacity: 0.7 }}
               eventHandlers={{
                 click: () => { if (onPointClick) onPointClick(row.longitude); },
               }}
@@ -282,7 +281,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         })}
       </MapContainer>
 
-      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} />
+      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} showNaPoints={showNaPoints} />
     </div>
   );
 }

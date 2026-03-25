@@ -11,6 +11,7 @@ interface LegendProps {
   groupMode?: GroupMode;
   groupStyles?: Map<string, GroupStyle>;
   thresholds?: CustomThresholds;
+  showNaPoints?: boolean;
 }
 
 /** 凡例用ミニSVG（16×16）をReact要素で描画 */
@@ -57,7 +58,7 @@ function MiniShapeSvg({ shape, borderColor }: { shape: MarkerShape; borderColor:
   );
 }
 
-export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds }: LegendProps) {
+export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, showNaPoints }: LegendProps) {
   const entries = getLegendEntries(metric, thresholds);
 
   const countLabel = fileCount && fileCount >= 2
@@ -81,15 +82,23 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
       maxWidth: showGroupLegend ? 260 : 220,
     }}>
       <h4 style={{ margin: '0 0 8px 0', fontSize: 14 }}>
-        {METRIC_LABELS[metric]}
+        {showNaPoints ? '不通区間' : METRIC_LABELS[metric]}
       </h4>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-        {entries.map((entry) => (
-          <span key={entry.color}>
-            <span style={{ color: entry.color }}>●</span> {entry.label}
+      {showNaPoints ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+          <span>
+            <span style={{ color: '#6b7280' }}>●</span> 計測不可 (N/A)
           </span>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+          {entries.map((entry) => (
+            <span key={entry.color}>
+              <span style={{ color: entry.color }}>●</span> {entry.label}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* グループ凡例 */}
       {showGroupLegend && (
