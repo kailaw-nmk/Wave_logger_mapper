@@ -6,8 +6,8 @@ import CsvUploader from '@/components/CsvUploader';
 import type { CsvRow } from '@/lib/csvParser';
 import { parseCsv, aggregateByLocation } from '@/lib/csvParser';
 import type { MapBounds } from '@/components/MapView';
-import type { Metric } from '@/lib/colorScale';
-import { METRIC_LABELS } from '@/lib/colorScale';
+import type { Metric, CustomThresholds } from '@/lib/colorScale';
+import { METRIC_LABELS, DEFAULT_THRESHOLDS } from '@/lib/colorScale';
 import type { GroupMode } from '@/lib/groupStyle';
 import { assignGroupStyles } from '@/lib/groupStyle';
 
@@ -15,6 +15,17 @@ import { assignGroupStyles } from '@/lib/groupStyle';
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
 // SpeedChartもブラウザ専用のためSSR無効
 const SpeedChart = dynamic(() => import('@/components/SpeedChart'), { ssr: false });
+const ThresholdEditor = dynamic(() => import('@/components/ThresholdEditor'), { ssr: false });
+
+/** TCP計測が全てN/Aか */
+function isTcpNa(row: { download_mbps: number | null; upload_mbps: number | null; ping_ms: number | null }): boolean {
+  return row.download_mbps === null && row.upload_mbps === null && row.ping_ms === null;
+}
+
+/** UDP計測が全てN/Aか */
+function isUdpNa(row: { udp_download_mbps: number | null; udp_upload_mbps: number | null; udp_ping_ms: number | null; udp_jitter_ms: number | null; udp_packet_loss_pct: number | null }): boolean {
+  return row.udp_download_mbps === null && row.udp_upload_mbps === null && row.udp_ping_ms === null && row.udp_jitter_ms === null && row.udp_packet_loss_pct === null;
+}
 
 /** メトリックがping系かどうか */
 function isPingMetric(m: Metric): boolean {
@@ -38,12 +49,30 @@ export default function HomePage() {
   const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
   const [metric, setMetric] = useState<Metric>('download_mbps');
 
+  // カラー閾値
+  const [customThresholds, setCustomThresholds] = useState<CustomThresholds>(() => {
+    if (typeof window === 'undefined') return DEFAULT_THRESHOLDS;
+    try {
+      const saved = localStorage.getItem('wlm_color_thresholds');
+      if (saved) return JSON.parse(saved) as CustomThresholds;
+    } catch { /* 破損データは無視 */ }
+    return DEFAULT_THRESHOLDS;
+  });
+  const [showThresholdEditor, setShowThresholdEditor] = useState(false);
+
+  const handleThresholdsChange = useCallback((t: CustomThresholds) => {
+    setCustomThresholds(t);
+    try { localStorage.setItem('wlm_color_thresholds', JSON.stringify(t)); } catch { /* noop */ }
+  }, []);
+
   // グループモード
   const [groupMode, setGroupMode] = useState<GroupMode>('none');
 
   // フィルタ
   const [filterEnabled, setFilterEnabled] = useState(false);
   const [filterMax, setFilterMax] = useState<number>(50);
+  // N/A（不通区間）フィルタ: 'none' | 'tcp' | 'udp'
+  const [naFilter, setNaFilter] = useState<'none' | 'tcp' | 'udp'>('none');
 
   // チャート
   const [showChart, setShowChart] = useState(false);
@@ -96,23 +125,37 @@ export default function HomePage() {
 
   // フィルタ後の集約データ（マップ用）
   const filteredAggregated = useMemo(() => {
-    if (!filterEnabled) return data;
-    const higherWorse = isHigherWorse(metric);
-    return data.filter((row) => {
-      const v = row[metric];
-      return v === null || (higherWorse ? v >= filterMax : v <= filterMax);
-    });
-  }, [data, filterEnabled, filterMax, metric]);
+    let result = data;
+    if (naFilter !== 'none') {
+      const fn = naFilter === 'tcp' ? isTcpNa : isUdpNa;
+      result = result.filter(fn);
+    }
+    if (filterEnabled) {
+      const higherWorse = isHigherWorse(metric);
+      result = result.filter((row) => {
+        const v = row[metric];
+        return v === null || (higherWorse ? v >= filterMax : v <= filterMax);
+      });
+    }
+    return result;
+  }, [data, filterEnabled, filterMax, metric, naFilter]);
 
   // フィルタ後の生データ（チャート用）
   const filteredRaw = useMemo(() => {
-    if (!filterEnabled) return rawRows;
-    const higherWorse = isHigherWorse(metric);
-    return rawRows.filter((row) => {
-      const v = row[metric];
-      return v === null || (higherWorse ? v >= filterMax : v <= filterMax);
-    });
-  }, [rawRows, filterEnabled, filterMax, metric]);
+    let result = rawRows;
+    if (naFilter !== 'none') {
+      const fn = naFilter === 'tcp' ? isTcpNa : isUdpNa;
+      result = result.filter(fn);
+    }
+    if (filterEnabled) {
+      const higherWorse = isHigherWorse(metric);
+      result = result.filter((row) => {
+        const v = row[metric];
+        return v === null || (higherWorse ? v >= filterMax : v <= filterMax);
+      });
+    }
+    return result;
+  }, [rawRows, filterEnabled, filterMax, metric, naFilter]);
 
   // マップ表示範囲内の生データ（チャート用）
   const chartData = useMemo(() => {
@@ -195,6 +238,22 @@ export default function HomePage() {
               ))}
             </select>
 
+            {/* 閾値設定ボタン */}
+            <button
+              onClick={() => setShowThresholdEditor(true)}
+              title="カラー閾値設定"
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid #ccc',
+                background: JSON.stringify(customThresholds) !== JSON.stringify(DEFAULT_THRESHOLDS) ? '#fef3c7' : '#fff',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              &#9881; 閾値
+            </button>
+
             {/* フィルタUI */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
@@ -233,6 +292,32 @@ export default function HomePage() {
                   </span>
                 </>
               )}
+            </div>
+
+            {/* 不通区間フィルタ */}
+            <div style={{ display: 'flex', gap: 4, fontSize: 13 }}>
+              <button
+                onClick={() => setNaFilter(naFilter === 'tcp' ? 'none' : 'tcp')}
+                style={{
+                  padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                  border: naFilter === 'tcp' ? '2px solid #ef4444' : '1px solid #ccc',
+                  background: naFilter === 'tcp' ? '#fef2f2' : '#fff',
+                  fontWeight: naFilter === 'tcp' ? 600 : 400,
+                }}
+              >
+                TCP不通
+              </button>
+              <button
+                onClick={() => setNaFilter(naFilter === 'udp' ? 'none' : 'udp')}
+                style={{
+                  padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                  border: naFilter === 'udp' ? '2px solid #ef4444' : '1px solid #ccc',
+                  background: naFilter === 'udp' ? '#fef2f2' : '#fff',
+                  fontWeight: naFilter === 'udp' ? 600 : 400,
+                }}
+              >
+                UDP不通
+              </button>
             </div>
 
             {/* グループ表示 */}
@@ -350,23 +435,46 @@ export default function HomePage() {
                 onBoundsChange={setMapBounds}
                 groupMode={groupMode}
                 groupStyles={groupStyles}
+                thresholds={customThresholds}
+                showNaPoints={naFilter !== 'none'}
               />
               {/* フィルタ適用中バッジ */}
-              {filterEnabled && (
+              {(filterEnabled || naFilter !== 'none') && (
                 <div style={{
                   position: 'absolute',
                   top: 10,
                   right: 10,
                   zIndex: 1000,
-                  background: 'rgba(255, 255, 255, 0.95)',
-                  border: '1px solid #3b82f6',
-                  borderRadius: 6,
-                  padding: '4px 10px',
-                  fontSize: 12,
-                  color: '#1e40af',
-                  boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
                 }}>
-                  フィルタ適用中: {METRIC_LABELS[metric]} {isHigherWorse(metric) ? '≥' : '≤'} {filterMax} {unit}
+                  {filterEnabled && (
+                    <div style={{
+                      background: 'rgba(255, 255, 255, 0.95)',
+                      border: '1px solid #3b82f6',
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      fontSize: 12,
+                      color: '#1e40af',
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
+                    }}>
+                      フィルタ適用中: {METRIC_LABELS[metric]} {isHigherWorse(metric) ? '≥' : '≤'} {filterMax} {unit}
+                    </div>
+                  )}
+                  {naFilter !== 'none' && (
+                    <div style={{
+                      background: 'rgba(255, 255, 255, 0.95)',
+                      border: '1px solid #ef4444',
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      fontSize: 12,
+                      color: '#991b1b',
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
+                    }}>
+                      不通区間表示中: {naFilter === 'tcp' ? 'TCP' : 'UDP'}計測 N/A ({filteredAggregated.length}件)
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -463,6 +571,15 @@ export default function HomePage() {
           </>
         )}
       </main>
+
+      {/* 閾値編集モーダル */}
+      {showThresholdEditor && (
+        <ThresholdEditor
+          thresholds={customThresholds}
+          onChange={handleThresholdsChange}
+          onClose={() => setShowThresholdEditor(false)}
+        />
+      )}
     </div>
   );
 }

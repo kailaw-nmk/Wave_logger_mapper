@@ -4,7 +4,7 @@ import { useMemo, useCallback, useEffect } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Popup, Rectangle, useMap, useMapEvents } from 'react-leaflet';
 import type { LatLngBounds } from 'leaflet';
 import type { AggregatedRow, CsvRow } from '@/lib/csvParser';
-import type { Metric } from '@/lib/colorScale';
+import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { getColor, METRIC_LABELS } from '@/lib/colorScale';
 import type { GroupMode, GroupStyle } from '@/lib/groupStyle';
 import { getGroupKey } from '@/lib/groupStyle';
@@ -31,6 +31,8 @@ interface MapViewProps {
   onBoundsChange?: (bounds: MapBounds) => void;
   groupMode?: GroupMode;
   groupStyles?: Map<string, GroupStyle>;
+  thresholds?: CustomThresholds;
+  showNaPoints?: boolean;
 }
 
 /** データ変更時に地図をデータ範囲にフィットさせる */
@@ -111,7 +113,7 @@ function fmt(v: number | null): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, showNaPoints }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // ハイライト矩形の緯度範囲を計算（データ全体の緯度範囲 + 余白）
@@ -184,8 +186,8 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         {/* 計測ポイント */}
         {data.map((row, i) => {
           const value = row[metric];
-          if (value === null) return null;
-          const fillColor = getColor(value, metric);
+          if (value === null && !showNaPoints) return null;
+          const fillColor = value === null ? '#6b7280' : getColor(value, metric, thresholds);
 
           const popupContent = (
             <Popup maxWidth={320}>
@@ -280,7 +282,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         })}
       </MapContainer>
 
-      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} />
+      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import type { Metric } from '@/lib/colorScale';
+import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { METRIC_LABELS, getLegendEntries } from '@/lib/colorScale';
 import type { GroupMode, GroupStyle, MarkerShape } from '@/lib/groupStyle';
 
@@ -10,6 +10,7 @@ interface LegendProps {
   fileCount?: number;
   groupMode?: GroupMode;
   groupStyles?: Map<string, GroupStyle>;
+  thresholds?: CustomThresholds;
 }
 
 /** 凡例用ミニSVG（16×16）をReact要素で描画 */
@@ -56,8 +57,8 @@ function MiniShapeSvg({ shape, borderColor }: { shape: MarkerShape; borderColor:
   );
 }
 
-export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles }: LegendProps) {
-  const entries = getLegendEntries(metric);
+export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds }: LegendProps) {
+  const entries = getLegendEntries(metric, thresholds);
 
   const countLabel = fileCount && fileCount >= 2
     ? `計測ポイント: ${pointCount}件 (${fileCount}ファイル)`
