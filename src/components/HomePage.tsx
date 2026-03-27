@@ -4,7 +4,7 @@ import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import CsvUploader from '@/components/CsvUploader';
 import type { CsvRow } from '@/lib/csvParser';
-import { parseCsv, aggregateByLocation } from '@/lib/csvParser';
+import { parseCsv, aggregateByLocation, toAggregatedRows } from '@/lib/csvParser';
 import type { MapBounds } from '@/components/MapView';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { METRIC_LABELS, DEFAULT_THRESHOLDS, syncGroupThresholds } from '@/lib/colorScale';
@@ -87,6 +87,8 @@ export default function HomePage() {
   const [naFilter, setNaFilter] = useState<'none' | 'tcp' | 'udp' | 'both'>('none');
   // 不通ポイントのみ表示モード
   const [naOnly, setNaOnly] = useState(false);
+  // 集約モード: true=近傍点を集約, false=全測定点を個別表示
+  const [aggregate, setAggregate] = useState(true);
 
   // チャート
   const [showChart, setShowChart] = useState(false);
@@ -127,7 +129,7 @@ export default function HomePage() {
     };
   }, []);
 
-  const data = useMemo(() => aggregateByLocation(rawRows), [rawRows]);
+  const data = useMemo(() => aggregate ? aggregateByLocation(rawRows) : toAggregatedRows(rawRows), [rawRows, aggregate]);
 
   // グループスタイルを計算
   const groupStyles = useMemo(() => {
@@ -153,12 +155,13 @@ export default function HomePage() {
     return result;
   }, [data, filterEnabled, filterMax, metric]);
 
-  // 不通ポイント（N/Aフィルタ有効時のみ — 生データから判定して集約）
+  // 不通ポイント（N/Aフィルタ有効時のみ — 生データから判定）
   const naPoints = useMemo(() => {
     if (naFilter === 'none') return [];
     const fn = naFilter === 'tcp' ? isTcpNa : naFilter === 'udp' ? isUdpNa : isBothNa;
-    return aggregateByLocation(rawRows.filter(fn));
-  }, [rawRows, naFilter]);
+    const naRaw = rawRows.filter(fn);
+    return aggregate ? aggregateByLocation(naRaw) : toAggregatedRows(naRaw);
+  }, [rawRows, naFilter, aggregate]);
 
   // フィルタ後の生データ（チャート用）
   const filteredRaw = useMemo(() => {
@@ -301,6 +304,23 @@ export default function HomePage() {
               }}
             >
               &#9881; 閾値
+            </button>
+
+            {/* 集約モード切替 */}
+            <button
+              onClick={() => setAggregate((v) => !v)}
+              style={{
+                padding: '4px 8px',
+                borderRadius: 6,
+                border: aggregate ? '1px solid #ccc' : '2px solid #8b5cf6',
+                background: aggregate ? '#fff' : '#f5f3ff',
+                fontSize: 13,
+                cursor: 'pointer',
+                fontWeight: aggregate ? 400 : 600,
+              }}
+              title={aggregate ? '近傍点を集約表示中（クリックで全点表示）' : '全測定点を個別表示中（クリックで集約表示）'}
+            >
+              {aggregate ? '集約' : '全点'} ({data.length})
             </button>
 
             {/* フィルタUI */}

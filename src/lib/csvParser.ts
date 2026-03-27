@@ -121,6 +121,17 @@ export function aggregateByLocation(rows: CsvRow[]): AggregatedRow[] {
   });
 }
 
+/** CsvRow を集約なしで AggregatedRow に変換する（全行をそのまま表示用） */
+export function toAggregatedRows(rows: CsvRow[]): AggregatedRow[] {
+  return rows.map((r) => ({
+    ...r,
+    count: 1,
+    sourceFiles: [r._sourceFile],
+    vehicle_ids: r.vehicle_id ? [r.vehicle_id] : [],
+    route_types: r.route_type ? [r.route_type] : [],
+  }));
+}
+
 /** null を除外して平均を計算する */
 function averageNullable(values: (number | null)[]): number | null {
   const valid = values.filter((v): v is number => v !== null);
