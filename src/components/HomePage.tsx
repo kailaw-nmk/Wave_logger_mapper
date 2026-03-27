@@ -34,6 +34,11 @@ function isUdpNa(row: { udp_download_mbps: number | null; udp_upload_mbps: numbe
   return row.download_mbps === null && row.upload_mbps === null;
 }
 
+/** 完全不通: TCP+UDP両方の計測が全てN/A */
+function isBothNa(row: { download_mbps: number | null; upload_mbps: number | null; ping_ms: number | null; udp_download_mbps: number | null; udp_upload_mbps: number | null; udp_ping_ms: number | null; udp_jitter_ms: number | null; udp_packet_loss_pct: number | null }): boolean {
+  return isTcpNa(row) && isUdpNa(row);
+}
+
 /** メトリックがping系かどうか */
 function isPingMetric(m: Metric): boolean {
   return m === 'ping_ms' || m === 'udp_ping_ms';
@@ -79,7 +84,7 @@ export default function HomePage() {
   const [filterEnabled, setFilterEnabled] = useState(false);
   const [filterMax, setFilterMax] = useState<number>(50);
   // N/A（不通区間）フィルタ: 'none' | 'tcp' | 'udp'
-  const [naFilter, setNaFilter] = useState<'none' | 'tcp' | 'udp'>('none');
+  const [naFilter, setNaFilter] = useState<'none' | 'tcp' | 'udp' | 'both'>('none');
   // 不通ポイントのみ表示モード
   const [naOnly, setNaOnly] = useState(false);
 
@@ -151,7 +156,7 @@ export default function HomePage() {
   // 不通ポイント（N/Aフィルタ有効時のみ）
   const naPoints = useMemo(() => {
     if (naFilter === 'none') return [];
-    const fn = naFilter === 'tcp' ? isTcpNa : isUdpNa;
+    const fn = naFilter === 'tcp' ? isTcpNa : naFilter === 'udp' ? isUdpNa : isBothNa;
     return data.filter(fn);
   }, [data, naFilter]);
 
@@ -370,6 +375,21 @@ export default function HomePage() {
               >
                 UDP不通
               </button>
+              <button
+                onClick={() => {
+                  const next = naFilter === 'both' ? 'none' : 'both';
+                  setNaFilter(next);
+                  if (next === 'none') setNaOnly(false);
+                }}
+                style={{
+                  padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                  border: naFilter === 'both' ? '2px solid #ef4444' : '1px solid #ccc',
+                  background: naFilter === 'both' ? '#fef2f2' : '#fff',
+                  fontWeight: naFilter === 'both' ? 600 : 400,
+                }}
+              >
+                完全不通
+              </button>
               {naFilter !== 'none' && (
                 <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
                   <input
@@ -585,7 +605,7 @@ export default function HomePage() {
                       color: '#991b1b',
                       boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
                     }}>
-                      不通区間表示中: {naFilter === 'tcp' ? 'TCP' : 'UDP'}計測 N/A ({naPoints.length}件)
+                      不通区間表示中: {naFilter === 'tcp' ? 'TCP' : naFilter === 'udp' ? 'UDP' : '完全'}計測 N/A ({naPoints.length}件)
                     </div>
                   )}
                 </div>

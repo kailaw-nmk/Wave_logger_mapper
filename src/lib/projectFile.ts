@@ -13,7 +13,7 @@ export interface WlmProjectFile {
   customThresholds: CustomThresholds;
   filterEnabled: boolean;
   filterMax: number;
-  naFilter: 'none' | 'tcp' | 'udp';
+  naFilter: 'none' | 'tcp' | 'udp' | 'both';
   groupMode: GroupMode;
   showChart: boolean;
   binSize: number;
@@ -28,7 +28,7 @@ export interface ProjectState {
   customThresholds: CustomThresholds;
   filterEnabled: boolean;
   filterMax: number;
-  naFilter: 'none' | 'tcp' | 'udp';
+  naFilter: 'none' | 'tcp' | 'udp' | 'both';
   groupMode: GroupMode;
   showChart: boolean;
   binSize: number;
@@ -95,7 +95,7 @@ export function validateAndParseProject(json: string): WlmProjectFile {
     customThresholds: isValidThresholds(obj.customThresholds) ? obj.customThresholds as CustomThresholds : DEFAULT_THRESHOLDS,
     filterEnabled: typeof obj.filterEnabled === 'boolean' ? obj.filterEnabled : false,
     filterMax: typeof obj.filterMax === 'number' ? obj.filterMax : 50,
-    naFilter: isValidNaFilter(obj.naFilter) ? obj.naFilter as 'none' | 'tcp' | 'udp' : 'none',
+    naFilter: isValidNaFilter(obj.naFilter) ? obj.naFilter as 'none' | 'tcp' | 'udp' | 'both' : 'none',
     groupMode: isValidGroupMode(obj.groupMode) ? obj.groupMode as GroupMode : 'none',
     showChart: typeof obj.showChart === 'boolean' ? obj.showChart : false,
     binSize: typeof obj.binSize === 'number' && obj.binSize >= 1 ? obj.binSize : 50,
@@ -125,8 +125,8 @@ export function downloadProjectFile(state: ProjectState): void {
   URL.revokeObjectURL(url);
 }
 
-function isValidNaFilter(v: unknown): v is 'none' | 'tcp' | 'udp' {
-  return v === 'none' || v === 'tcp' || v === 'udp';
+function isValidNaFilter(v: unknown): v is 'none' | 'tcp' | 'udp' | 'both' {
+  return v === 'none' || v === 'tcp' || v === 'udp' || v === 'both';
 }
 
 function isValidGroupMode(v: unknown): v is GroupMode {

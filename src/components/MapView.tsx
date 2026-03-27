@@ -35,7 +35,7 @@ interface MapViewProps {
   /** 不通ポイント（通常データと重ねて表示） */
   naPoints?: AggregatedRow[];
   /** 不通フィルタ状態 */
-  naFilter?: 'none' | 'tcp' | 'udp';
+  naFilter?: 'none' | 'tcp' | 'udp' | 'both';
   /** 不通ポイントのみ表示 */
   naOnly?: boolean;
 }
@@ -120,7 +120,7 @@ function buildPolylineGroups(rawRows: CsvRow[]): PolylineGroup[] {
 }
 
 /** 連続する不通ポイントをポリラインセグメントに変換する */
-function buildNaPolylineSegments(rawRows: CsvRow[], naFilter: 'tcp' | 'udp'): NaPolylineSegment[] {
+function buildNaPolylineSegments(rawRows: CsvRow[], naFilter: 'tcp' | 'udp' | 'both'): NaPolylineSegment[] {
   // _sourceFile::vehicle_id でグループ化
   const groups = new Map<string, CsvRow[]>();
   for (const row of rawRows) {
@@ -133,12 +133,14 @@ function buildNaPolylineSegments(rawRows: CsvRow[], naFilter: 'tcp' | 'udp'): Na
     group.push(row);
   }
 
-  const isNa = naFilter === 'tcp'
-    ? (r: CsvRow) => r.download_mbps === null && r.upload_mbps === null && r.ping_ms === null
-        && r.udp_download_mbps === null && r.udp_upload_mbps === null
-    : (r: CsvRow) => r.udp_download_mbps === null && r.udp_upload_mbps === null && r.udp_ping_ms === null
-        && r.udp_jitter_ms === null && r.udp_packet_loss_pct === null
-        && r.download_mbps === null && r.upload_mbps === null;
+  const isTcpNaRow = (r: CsvRow) => r.download_mbps === null && r.upload_mbps === null && r.ping_ms === null
+      && r.udp_download_mbps === null && r.udp_upload_mbps === null;
+  const isUdpNaRow = (r: CsvRow) => r.udp_download_mbps === null && r.udp_upload_mbps === null && r.udp_ping_ms === null
+      && r.udp_jitter_ms === null && r.udp_packet_loss_pct === null
+      && r.download_mbps === null && r.upload_mbps === null;
+  const isNa = naFilter === 'tcp' ? isTcpNaRow
+    : naFilter === 'udp' ? isUdpNaRow
+    : (r: CsvRow) => isTcpNaRow(r) && isUdpNaRow(r);
 
   const segments: NaPolylineSegment[] = [];
 
