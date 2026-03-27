@@ -153,12 +153,12 @@ export default function HomePage() {
     return result;
   }, [data, filterEnabled, filterMax, metric]);
 
-  // 不通ポイント（N/Aフィルタ有効時のみ）
+  // 不通ポイント（N/Aフィルタ有効時のみ — 生データから判定して集約）
   const naPoints = useMemo(() => {
     if (naFilter === 'none') return [];
     const fn = naFilter === 'tcp' ? isTcpNa : naFilter === 'udp' ? isUdpNa : isBothNa;
-    return data.filter(fn);
-  }, [data, naFilter]);
+    return aggregateByLocation(rawRows.filter(fn));
+  }, [rawRows, naFilter]);
 
   // フィルタ後の生データ（チャート用）
   const filteredRaw = useMemo(() => {
