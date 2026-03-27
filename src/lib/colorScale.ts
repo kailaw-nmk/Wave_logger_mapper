@@ -98,6 +98,26 @@ export const DEFAULT_THRESHOLDS: CustomThresholds = {
   },
 };
 
+/** 同じ閾値を共有するメトリクスグループ */
+export const METRIC_GROUPS: { label: string; metrics: Metric[] }[] = [
+  { label: '帯域 (Mbps)', metrics: ['download_mbps', 'upload_mbps', 'udp_download_mbps', 'udp_upload_mbps'] },
+  { label: 'Ping (ms)', metrics: ['ping_ms', 'udp_ping_ms'] },
+  { label: 'Jitter (ms)', metrics: ['udp_jitter_ms'] },
+  { label: 'パケットロス (%)', metrics: ['udp_packet_loss_pct'] },
+];
+
+/** グループ内の閾値を代表メトリクス（先頭）に統一する */
+export function syncGroupThresholds(thresholds: CustomThresholds): CustomThresholds {
+  const synced = { ...thresholds };
+  for (const group of METRIC_GROUPS) {
+    const rep = synced[group.metrics[0]];
+    for (let i = 1; i < group.metrics.length; i++) {
+      synced[group.metrics[i]] = { ...synced[group.metrics[i]], boundaries: [...rep.boundaries] as [number, number, number, number] };
+    }
+  }
+  return synced;
+}
+
 /** 速度値に応じたカラーコードを返す (赤=遅い/悪い, 緑=速い/良い) */
 export function getColor(value: number, metric: Metric, thresholds?: CustomThresholds): string {
   const t = (thresholds ?? DEFAULT_THRESHOLDS)[metric];

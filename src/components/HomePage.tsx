@@ -7,7 +7,7 @@ import type { CsvRow } from '@/lib/csvParser';
 import { parseCsv, aggregateByLocation } from '@/lib/csvParser';
 import type { MapBounds } from '@/components/MapView';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
-import { METRIC_LABELS, DEFAULT_THRESHOLDS } from '@/lib/colorScale';
+import { METRIC_LABELS, DEFAULT_THRESHOLDS, syncGroupThresholds } from '@/lib/colorScale';
 import type { GroupMode } from '@/lib/groupStyle';
 import { assignGroupStyles } from '@/lib/groupStyle';
 import { downloadProjectFile, validateAndParseProject } from '@/lib/projectFile';
@@ -50,12 +50,12 @@ export default function HomePage() {
   const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
   const [metric, setMetric] = useState<Metric>('download_mbps');
 
-  // カラー閾値
+  // カラー閾値（読み込み時にグループ内を同期）
   const [customThresholds, setCustomThresholds] = useState<CustomThresholds>(() => {
     if (typeof window === 'undefined') return DEFAULT_THRESHOLDS;
     try {
       const saved = localStorage.getItem('wlm_color_thresholds');
-      if (saved) return JSON.parse(saved) as CustomThresholds;
+      if (saved) return syncGroupThresholds(JSON.parse(saved) as CustomThresholds);
     } catch { /* 破損データは無視 */ }
     return DEFAULT_THRESHOLDS;
   });

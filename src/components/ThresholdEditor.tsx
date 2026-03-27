@@ -2,18 +2,10 @@
 
 import { useState } from 'react';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
-import { METRIC_LABELS, DEFAULT_THRESHOLDS } from '@/lib/colorScale';
+import { METRIC_LABELS, DEFAULT_THRESHOLDS, METRIC_GROUPS } from '@/lib/colorScale';
 
 // 色定数（colorScale.tsと同じ）
 const COLORS = ['#22c55e', '#84cc16', '#eab308', '#f97316', '#ef4444'];
-
-/** 同じ閾値を共有するメトリクスグループ */
-const METRIC_GROUPS: { label: string; metrics: Metric[] }[] = [
-  { label: '帯域 (Mbps)', metrics: ['download_mbps', 'upload_mbps', 'udp_download_mbps', 'udp_upload_mbps'] },
-  { label: 'Ping (ms)', metrics: ['ping_ms', 'udp_ping_ms'] },
-  { label: 'Jitter (ms)', metrics: ['udp_jitter_ms'] },
-  { label: 'パケットロス (%)', metrics: ['udp_packet_loss_pct'] },
-];
 
 interface ThresholdEditorProps {
   thresholds: CustomThresholds;
