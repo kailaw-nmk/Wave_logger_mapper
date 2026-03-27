@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { METRIC_LABELS, getLegendEntries } from '@/lib/colorScale';
 import type { GroupMode, GroupStyle, MarkerShape } from '@/lib/groupStyle';
@@ -62,6 +63,7 @@ function MiniShapeSvg({ shape, borderColor }: { shape: MarkerShape; borderColor:
 }
 
 export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false }: LegendProps) {
+  const [collapsed, setCollapsed] = useState(false);
   const entries = getLegendEntries(metric, thresholds);
 
   const countLabel = fileCount && fileCount >= 2
@@ -78,53 +80,75 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
       left: 30,
       zIndex: 1000,
       background: 'white',
-      padding: '12px 16px',
       borderRadius: 8,
       boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
       fontFamily: 'sans-serif',
       maxWidth: showGroupLegend ? 260 : 220,
+      overflow: 'hidden',
     }}>
-      <h4 style={{ margin: '0 0 8px 0', fontSize: 14 }}>
-        {METRIC_LABELS[metric]}
-      </h4>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-        {entries.map((entry) => (
-          <span key={entry.color}>
-            <span style={{ color: entry.color }}>●</span> {entry.label}
-          </span>
-        ))}
-        {naPointCount > 0 && (
-          <span>
-            <span style={{ color: '#6b7280' }}>●</span> 不通 N/A ({naPointCount}件)
-          </span>
-        )}
-        {showNaPolyline && (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ display: 'inline-block', width: 16, height: 0, borderTop: '3px solid #ef4444', verticalAlign: 'middle' }} /> 不通区間
-          </span>
-        )}
+      {/* ヘッダー（常に表示 — クリックで開閉） */}
+      <div
+        onClick={() => setCollapsed((v) => !v)}
+        style={{
+          padding: '8px 16px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          userSelect: 'none',
+        }}
+      >
+        <h4 style={{ margin: 0, fontSize: 14 }}>
+          {METRIC_LABELS[metric]}
+        </h4>
+        <span style={{ fontSize: 10, color: '#999', marginLeft: 8 }}>
+          {collapsed ? '\u25BC' : '\u25B2'}
+        </span>
       </div>
 
-      {/* グループ凡例 */}
-      {showGroupLegend && (
-        <>
-          <h4 style={{ margin: '10px 0 6px 0', fontSize: 13, borderTop: '1px solid #eee', paddingTop: 8 }}>
-            {groupHeader}
-          </h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12 }}>
-            {Array.from(groupStyles!.entries()).map(([key, style]) => (
-              <span key={key} style={{ display: 'flex', alignItems: 'center' }}>
-                <MiniShapeSvg shape={style.shape} borderColor={style.borderColor} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{style.label}</span>
+      {/* 本体（折りたたみ時は非表示） */}
+      {!collapsed && (
+        <div style={{ padding: '0 16px 12px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+            {entries.map((entry) => (
+              <span key={entry.color}>
+                <span style={{ color: entry.color }}>●</span> {entry.label}
               </span>
             ))}
+            {naPointCount > 0 && (
+              <span>
+                <span style={{ color: '#6b7280' }}>●</span> 不通 N/A ({naPointCount}件)
+              </span>
+            )}
+            {showNaPolyline && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ display: 'inline-block', width: 16, height: 0, borderTop: '3px solid #ef4444', verticalAlign: 'middle' }} /> 不通区間
+              </span>
+            )}
           </div>
-        </>
-      )}
 
-      <p style={{ margin: '8px 0 0 0', fontSize: 11, color: '#666' }}>
-        {countLabel}
-      </p>
+          {/* グループ凡例 */}
+          {showGroupLegend && (
+            <>
+              <h4 style={{ margin: '10px 0 6px 0', fontSize: 13, borderTop: '1px solid #eee', paddingTop: 8 }}>
+                {groupHeader}
+              </h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12 }}>
+                {Array.from(groupStyles!.entries()).map(([key, style]) => (
+                  <span key={key} style={{ display: 'flex', alignItems: 'center' }}>
+                    <MiniShapeSvg shape={style.shape} borderColor={style.borderColor} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{style.label}</span>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+
+          <p style={{ margin: '8px 0 0 0', fontSize: 11, color: '#666' }}>
+            {countLabel}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
