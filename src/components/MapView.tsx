@@ -36,6 +36,8 @@ interface MapViewProps {
   naPoints?: AggregatedRow[];
   /** 不通フィルタ状態 */
   naFilter?: 'none' | 'tcp' | 'udp';
+  /** 不通ポイントのみ表示 */
+  naOnly?: boolean;
 }
 
 /** データ変更時に地図をデータ範囲にフィットさせる */
@@ -133,7 +135,10 @@ function buildNaPolylineSegments(rawRows: CsvRow[], naFilter: 'tcp' | 'udp'): Na
 
   const isNa = naFilter === 'tcp'
     ? (r: CsvRow) => r.download_mbps === null && r.upload_mbps === null && r.ping_ms === null
-    : (r: CsvRow) => r.udp_download_mbps === null && r.udp_upload_mbps === null && r.udp_ping_ms === null && r.udp_jitter_ms === null && r.udp_packet_loss_pct === null;
+        && r.udp_download_mbps === null && r.udp_upload_mbps === null
+    : (r: CsvRow) => r.udp_download_mbps === null && r.udp_upload_mbps === null && r.udp_ping_ms === null
+        && r.udp_jitter_ms === null && r.udp_packet_loss_pct === null
+        && r.download_mbps === null && r.upload_mbps === null;
 
   const segments: NaPolylineSegment[] = [];
 
@@ -258,7 +263,7 @@ function renderMarker(
   );
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none' }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // 不通区間ポリラインセグメント
@@ -277,10 +282,12 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
     return { min: minLat - padding, max: maxLat + padding };
   }, [data]);
 
-  if (data.length === 0) return null;
+  // 表示対象ポイント（FitBounds・center計算用）
+  const visiblePoints = naOnly && naPoints.length > 0 ? naPoints : data;
+  if (visiblePoints.length === 0) return null;
 
-  const centerLat = data.reduce((sum, r) => sum + r.latitude, 0) / data.length;
-  const centerLng = data.reduce((sum, r) => sum + r.longitude, 0) / data.length;
+  const centerLat = visiblePoints.reduce((sum, r) => sum + r.latitude, 0) / visiblePoints.length;
+  const centerLng = visiblePoints.reduce((sum, r) => sum + r.longitude, 0) / visiblePoints.length;
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -289,7 +296,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         zoom={14}
         style={{ width: '100%', height: '100%' }}
       >
-        <FitBounds data={data} />
+        <FitBounds data={visiblePoints} />
         {onBoundsChange && <BoundsWatcher onChange={onBoundsChange} />}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -345,8 +352,8 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           />
         )}
 
-        {/* 通常計測ポイント */}
-        {data.map((row, i) => {
+        {/* 通常計測ポイント（naOnlyモード時は非表示） */}
+        {!naOnly && data.map((row, i) => {
           const value = row[metric];
           if (value === null) return null;
           const fillColor = getColor(value, metric, thresholds);

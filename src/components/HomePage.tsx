@@ -18,14 +18,20 @@ const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
 const SpeedChart = dynamic(() => import('@/components/SpeedChart'), { ssr: false });
 const ThresholdEditor = dynamic(() => import('@/components/ThresholdEditor'), { ssr: false });
 
-/** TCP計測が全てN/Aか */
-function isTcpNa(row: { download_mbps: number | null; upload_mbps: number | null; ping_ms: number | null }): boolean {
-  return row.download_mbps === null && row.upload_mbps === null && row.ping_ms === null;
+/** TCP計測が全てN/Aか（UDP帯域テスト行は除外） */
+function isTcpNa(row: { download_mbps: number | null; upload_mbps: number | null; ping_ms: number | null; udp_download_mbps: number | null; udp_upload_mbps: number | null }): boolean {
+  const tcpAllNull = row.download_mbps === null && row.upload_mbps === null && row.ping_ms === null;
+  if (!tcpAllNull) return false;
+  // UDP帯域テスト行は「TCP不通」ではない
+  return row.udp_download_mbps === null && row.udp_upload_mbps === null;
 }
 
-/** UDP計測が全てN/Aか */
-function isUdpNa(row: { udp_download_mbps: number | null; udp_upload_mbps: number | null; udp_ping_ms: number | null; udp_jitter_ms: number | null; udp_packet_loss_pct: number | null }): boolean {
-  return row.udp_download_mbps === null && row.udp_upload_mbps === null && row.udp_ping_ms === null && row.udp_jitter_ms === null && row.udp_packet_loss_pct === null;
+/** UDP計測が全てN/Aか（TCP帯域テスト行は除外） */
+function isUdpNa(row: { udp_download_mbps: number | null; udp_upload_mbps: number | null; udp_ping_ms: number | null; udp_jitter_ms: number | null; udp_packet_loss_pct: number | null; download_mbps: number | null; upload_mbps: number | null }): boolean {
+  const udpAllNull = row.udp_download_mbps === null && row.udp_upload_mbps === null && row.udp_ping_ms === null && row.udp_jitter_ms === null && row.udp_packet_loss_pct === null;
+  if (!udpAllNull) return false;
+  // TCP帯域テスト行は「UDP不通」ではない
+  return row.download_mbps === null && row.upload_mbps === null;
 }
 
 /** メトリックがping系かどうか */
@@ -74,6 +80,8 @@ export default function HomePage() {
   const [filterMax, setFilterMax] = useState<number>(50);
   // N/A（不通区間）フィルタ: 'none' | 'tcp' | 'udp'
   const [naFilter, setNaFilter] = useState<'none' | 'tcp' | 'udp'>('none');
+  // 不通ポイントのみ表示モード
+  const [naOnly, setNaOnly] = useState(false);
 
   // チャート
   const [showChart, setShowChart] = useState(false);
@@ -333,7 +341,11 @@ export default function HomePage() {
             {/* 不通区間フィルタ */}
             <div style={{ display: 'flex', gap: 4, fontSize: 13 }}>
               <button
-                onClick={() => setNaFilter(naFilter === 'tcp' ? 'none' : 'tcp')}
+                onClick={() => {
+                  const next = naFilter === 'tcp' ? 'none' : 'tcp';
+                  setNaFilter(next);
+                  if (next === 'none') setNaOnly(false);
+                }}
                 style={{
                   padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
                   border: naFilter === 'tcp' ? '2px solid #ef4444' : '1px solid #ccc',
@@ -344,7 +356,11 @@ export default function HomePage() {
                 TCP不通
               </button>
               <button
-                onClick={() => setNaFilter(naFilter === 'udp' ? 'none' : 'udp')}
+                onClick={() => {
+                  const next = naFilter === 'udp' ? 'none' : 'udp';
+                  setNaFilter(next);
+                  if (next === 'none') setNaOnly(false);
+                }}
                 style={{
                   padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
                   border: naFilter === 'udp' ? '2px solid #ef4444' : '1px solid #ccc',
@@ -354,6 +370,16 @@ export default function HomePage() {
               >
                 UDP不通
               </button>
+              {naFilter !== 'none' && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={naOnly}
+                    onChange={(e) => setNaOnly(e.target.checked)}
+                  />
+                  不通のみ
+                </label>
+              )}
             </div>
 
             {/* グループ表示 */}
@@ -523,6 +549,7 @@ export default function HomePage() {
                 thresholds={customThresholds}
                 naPoints={naPoints}
                 naFilter={naFilter}
+                naOnly={naOnly}
               />
               {/* フィルタ適用中バッジ */}
               {(filterEnabled || naFilter !== 'none') && (
