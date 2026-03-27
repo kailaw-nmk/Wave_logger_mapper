@@ -127,13 +127,9 @@ export default function HomePage() {
     return assignGroupStyles(Array.from(keys));
   }, [rawRows, groupMode]);
 
-  // フィルタ後の集約データ（マップ用）
+  // フィルタ後の集約データ（マップ用 — 通常ポイント）
   const filteredAggregated = useMemo(() => {
     let result = data;
-    if (naFilter !== 'none') {
-      const fn = naFilter === 'tcp' ? isTcpNa : isUdpNa;
-      result = result.filter(fn);
-    }
     if (filterEnabled) {
       const higherWorse = isHigherWorse(metric);
       result = result.filter((row) => {
@@ -142,15 +138,18 @@ export default function HomePage() {
       });
     }
     return result;
-  }, [data, filterEnabled, filterMax, metric, naFilter]);
+  }, [data, filterEnabled, filterMax, metric]);
+
+  // 不通ポイント（N/Aフィルタ有効時のみ）
+  const naPoints = useMemo(() => {
+    if (naFilter === 'none') return [];
+    const fn = naFilter === 'tcp' ? isTcpNa : isUdpNa;
+    return data.filter(fn);
+  }, [data, naFilter]);
 
   // フィルタ後の生データ（チャート用）
   const filteredRaw = useMemo(() => {
     let result = rawRows;
-    if (naFilter !== 'none') {
-      const fn = naFilter === 'tcp' ? isTcpNa : isUdpNa;
-      result = result.filter(fn);
-    }
     if (filterEnabled) {
       const higherWorse = isHigherWorse(metric);
       result = result.filter((row) => {
@@ -159,7 +158,7 @@ export default function HomePage() {
       });
     }
     return result;
-  }, [rawRows, filterEnabled, filterMax, metric, naFilter]);
+  }, [rawRows, filterEnabled, filterMax, metric]);
 
   // マップ表示範囲内の生データ（チャート用）
   const chartData = useMemo(() => {
@@ -522,7 +521,7 @@ export default function HomePage() {
                 groupMode={groupMode}
                 groupStyles={groupStyles}
                 thresholds={customThresholds}
-                showNaPoints={naFilter !== 'none'}
+                naPoints={naPoints}
               />
               {/* フィルタ適用中バッジ */}
               {(filterEnabled || naFilter !== 'none') && (
@@ -558,7 +557,7 @@ export default function HomePage() {
                       color: '#991b1b',
                       boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
                     }}>
-                      不通区間表示中: {naFilter === 'tcp' ? 'TCP' : 'UDP'}計測 N/A ({filteredAggregated.length}件)
+                      不通区間表示中: {naFilter === 'tcp' ? 'TCP' : 'UDP'}計測 N/A ({naPoints.length}件)
                     </div>
                   )}
                 </div>

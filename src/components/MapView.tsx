@@ -32,7 +32,8 @@ interface MapViewProps {
   groupMode?: GroupMode;
   groupStyles?: Map<string, GroupStyle>;
   thresholds?: CustomThresholds;
-  showNaPoints?: boolean;
+  /** 不通ポイント（通常データと重ねて表示） */
+  naPoints?: AggregatedRow[];
 }
 
 /** データ変更時に地図をデータ範囲にフィットさせる */
@@ -113,7 +114,98 @@ function fmt(v: number | null): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, showNaPoints }: MapViewProps) {
+/** ポップアップ内容を生成 */
+function buildPopup(row: AggregatedRow) {
+  return (
+    <Popup maxWidth={320}>
+      <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+        <p style={{ margin: 0, fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>基本情報</p>
+        <p style={{ margin: 0 }}><b>日時:</b> {row.timestamp}</p>
+        {row.vehicle_ids.length > 0 && <p style={{ margin: 0 }}><b>車両:</b> {row.vehicle_ids.join(', ')}</p>}
+        {row.route_types.length > 0 && <p style={{ margin: 0 }}><b>ルート:</b> {row.route_types.join(', ')}</p>}
+        <p style={{ margin: 0 }}><b>接続:</b> {row.connection_type}</p>
+        {row.cellular_gen && <p style={{ margin: 0 }}><b>世代:</b> {row.cellular_gen}</p>}
+        {row.carrier && <p style={{ margin: 0 }}><b>キャリア:</b> {row.carrier}</p>}
+        {row.signal_dbm !== null && <p style={{ margin: 0 }}><b>電波:</b> {fmt(row.signal_dbm)} dBm</p>}
+
+        <p style={{ margin: '6px 0 0', fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>TCP計測</p>
+        <p style={{ margin: 0 }}><b>DL:</b> {fmt(row.download_mbps)} Mbps</p>
+        <p style={{ margin: 0 }}><b>UL:</b> {fmt(row.upload_mbps)} Mbps</p>
+        <p style={{ margin: 0 }}><b>Ping:</b> {fmt(row.ping_ms)} ms</p>
+
+        <p style={{ margin: '6px 0 0', fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>UDP計測</p>
+        <p style={{ margin: 0 }}><b>DL:</b> {fmt(row.udp_download_mbps)} Mbps</p>
+        <p style={{ margin: 0 }}><b>UL:</b> {fmt(row.udp_upload_mbps)} Mbps</p>
+        <p style={{ margin: 0 }}><b>Ping:</b> {fmt(row.udp_ping_ms)} ms</p>
+        <p style={{ margin: 0 }}><b>Jitter:</b> {fmt(row.udp_jitter_ms)} ms</p>
+        <p style={{ margin: 0 }}><b>パケットロス:</b> {fmt(row.udp_packet_loss_pct)} %</p>
+
+        {row.memo && <p style={{ margin: '6px 0 0' }}><b>メモ:</b> {row.memo}</p>}
+        {row.count > 1 && <p style={{ margin: '4px 0 0', color: '#888' }}><b>計測回数:</b> {row.count}回 (平均値)</p>}
+        <a
+          href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${row.latitude},${row.longitude}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            marginTop: 8, padding: '6px 12px',
+            background: '#4285f4', color: '#fff', borderRadius: 6,
+            fontSize: 12, fontWeight: 600, textDecoration: 'none',
+          }}
+        >
+          📍 ストリートビューを開く
+        </a>
+      </div>
+    </Popup>
+  );
+}
+
+/** マーカーを描画する */
+function renderMarker(
+  row: AggregatedRow,
+  i: number,
+  prefix: string,
+  fillColor: string,
+  groupMode: GroupMode,
+  groupStyles: Map<string, GroupStyle> | undefined,
+  onPointClick?: (lng: number) => void,
+) {
+  const popup = buildPopup(row);
+
+  // グループモード時: 形状アイコン付きMarker
+  if (groupMode !== 'none' && groupStyles) {
+    const gKey = getGroupKey(row, groupMode);
+    const style = gKey ? groupStyles.get(gKey) : undefined;
+    if (style) {
+      const icon = createShapeIcon(style.shape, fillColor, style.borderColor);
+      return (
+        <Marker
+          key={`${prefix}-${i}-${fillColor}`}
+          position={[row.latitude, row.longitude]}
+          icon={icon}
+          eventHandlers={{ click: () => { if (onPointClick) onPointClick(row.longitude); } }}
+        >
+          {popup}
+        </Marker>
+      );
+    }
+  }
+
+  // 通常モード: CircleMarker
+  return (
+    <CircleMarker
+      key={`${prefix}-${i}-${fillColor}`}
+      center={[row.latitude, row.longitude]}
+      radius={prefix === 'na' ? 8 : 10}
+      pathOptions={{ color: fillColor, fillColor, fillOpacity: 0.7 }}
+      eventHandlers={{ click: () => { if (onPointClick) onPointClick(row.longitude); } }}
+    >
+      {popup}
+    </CircleMarker>
+  );
+}
+
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [] }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // ハイライト矩形の緯度範囲を計算（データ全体の緯度範囲 + 余白）
@@ -183,105 +275,19 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           />
         )}
 
-        {/* 計測ポイント */}
+        {/* 通常計測ポイント */}
         {data.map((row, i) => {
           const value = row[metric];
-          if (value === null && !showNaPoints) return null;
-          // 不通フィルタ時は全マーカーをグレーで描画
-          const fillColor = showNaPoints ? '#6b7280' : getColor(value!, metric, thresholds);
-
-          const popupContent = (
-            <Popup maxWidth={320}>
-              <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-                {/* 基本情報 */}
-                <p style={{ margin: 0, fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>基本情報</p>
-                <p style={{ margin: 0 }}><b>日時:</b> {row.timestamp}</p>
-                {row.vehicle_ids.length > 0 && <p style={{ margin: 0 }}><b>車両:</b> {row.vehicle_ids.join(', ')}</p>}
-                {row.route_types.length > 0 && <p style={{ margin: 0 }}><b>ルート:</b> {row.route_types.join(', ')}</p>}
-                <p style={{ margin: 0 }}><b>接続:</b> {row.connection_type}</p>
-                {row.cellular_gen && <p style={{ margin: 0 }}><b>世代:</b> {row.cellular_gen}</p>}
-                {row.carrier && <p style={{ margin: 0 }}><b>キャリア:</b> {row.carrier}</p>}
-                {row.signal_dbm !== null && <p style={{ margin: 0 }}><b>電波:</b> {fmt(row.signal_dbm)} dBm</p>}
-
-                {/* TCP計測 */}
-                <p style={{ margin: '6px 0 0', fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>TCP計測</p>
-                <p style={{ margin: 0 }}><b>DL:</b> {fmt(row.download_mbps)} Mbps</p>
-                <p style={{ margin: 0 }}><b>UL:</b> {fmt(row.upload_mbps)} Mbps</p>
-                <p style={{ margin: 0 }}><b>Ping:</b> {fmt(row.ping_ms)} ms</p>
-
-                {/* UDP計測 */}
-                <p style={{ margin: '6px 0 0', fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>UDP計測</p>
-                <p style={{ margin: 0 }}><b>DL:</b> {fmt(row.udp_download_mbps)} Mbps</p>
-                <p style={{ margin: 0 }}><b>UL:</b> {fmt(row.udp_upload_mbps)} Mbps</p>
-                <p style={{ margin: 0 }}><b>Ping:</b> {fmt(row.udp_ping_ms)} ms</p>
-                <p style={{ margin: 0 }}><b>Jitter:</b> {fmt(row.udp_jitter_ms)} ms</p>
-                <p style={{ margin: 0 }}><b>パケットロス:</b> {fmt(row.udp_packet_loss_pct)} %</p>
-
-                {row.memo && <p style={{ margin: '6px 0 0' }}><b>メモ:</b> {row.memo}</p>}
-                {row.count > 1 && <p style={{ margin: '4px 0 0', color: '#888' }}><b>計測回数:</b> {row.count}回 (平均値)</p>}
-                <a
-                  href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${row.latitude},${row.longitude}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    marginTop: 8,
-                    padding: '6px 12px',
-                    background: '#4285f4',
-                    color: '#fff',
-                    borderRadius: 6,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    textDecoration: 'none',
-                  }}
-                >
-                  📍 ストリートビューを開く
-                </a>
-              </div>
-            </Popup>
-          );
-
-          // グループモード時: 形状アイコン付きMarker
-          if (groupMode !== 'none' && groupStyles) {
-            const gKey = getGroupKey(row, groupMode);
-            const style = gKey ? groupStyles.get(gKey) : undefined;
-            if (style) {
-              const icon = createShapeIcon(style.shape, fillColor, style.borderColor);
-              return (
-                <Marker
-                  key={`${i}-${fillColor}`}
-                  position={[row.latitude, row.longitude]}
-                  icon={icon}
-                  eventHandlers={{
-                    click: () => { if (onPointClick) onPointClick(row.longitude); },
-                  }}
-                >
-                  {popupContent}
-                </Marker>
-              );
-            }
-          }
-
-          // 通常モード: CircleMarker
-          return (
-            <CircleMarker
-              key={`${i}-${fillColor}`}
-              center={[row.latitude, row.longitude]}
-              radius={10}
-              pathOptions={{ color: fillColor, fillColor, fillOpacity: 0.7 }}
-              eventHandlers={{
-                click: () => { if (onPointClick) onPointClick(row.longitude); },
-              }}
-            >
-              {popupContent}
-            </CircleMarker>
-          );
+          if (value === null) return null;
+          const fillColor = getColor(value, metric, thresholds);
+          return renderMarker(row, i, 'pt', fillColor, groupMode, groupStyles, onPointClick);
         })}
+
+        {/* 不通ポイント（グレーで重ねて表示） */}
+        {naPoints.map((row, i) => renderMarker(row, i, 'na', '#6b7280', groupMode, groupStyles, onPointClick))}
       </MapContainer>
 
-      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} showNaPoints={showNaPoints} />
+      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} />
     </div>
   );
 }

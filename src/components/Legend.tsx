@@ -11,7 +11,8 @@ interface LegendProps {
   groupMode?: GroupMode;
   groupStyles?: Map<string, GroupStyle>;
   thresholds?: CustomThresholds;
-  showNaPoints?: boolean;
+  /** 不通ポイント数（0なら非表示） */
+  naPointCount?: number;
 }
 
 /** 凡例用ミニSVG（16×16）をReact要素で描画 */
@@ -58,7 +59,7 @@ function MiniShapeSvg({ shape, borderColor }: { shape: MarkerShape; borderColor:
   );
 }
 
-export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, showNaPoints }: LegendProps) {
+export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0 }: LegendProps) {
   const entries = getLegendEntries(metric, thresholds);
 
   const countLabel = fileCount && fileCount >= 2
@@ -82,23 +83,20 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
       maxWidth: showGroupLegend ? 260 : 220,
     }}>
       <h4 style={{ margin: '0 0 8px 0', fontSize: 14 }}>
-        {showNaPoints ? '不通区間' : METRIC_LABELS[metric]}
+        {METRIC_LABELS[metric]}
       </h4>
-      {showNaPoints ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-          <span>
-            <span style={{ color: '#6b7280' }}>●</span> 計測不可 (N/A)
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+        {entries.map((entry) => (
+          <span key={entry.color}>
+            <span style={{ color: entry.color }}>●</span> {entry.label}
           </span>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-          {entries.map((entry) => (
-            <span key={entry.color}>
-              <span style={{ color: entry.color }}>●</span> {entry.label}
-            </span>
-          ))}
-        </div>
-      )}
+        ))}
+        {naPointCount > 0 && (
+          <span>
+            <span style={{ color: '#6b7280' }}>●</span> 不通 N/A ({naPointCount}件)
+          </span>
+        )}
+      </div>
 
       {/* グループ凡例 */}
       {showGroupLegend && (
