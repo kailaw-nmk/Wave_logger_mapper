@@ -128,19 +128,19 @@ export function getLegendEntries(metric: Metric, thresholds?: CustomThresholds):
 
   if (t.higherIsBetter) {
     return [
-      { label: `${b0}+ ${u} (${t.labels[0]})`, color: COLORS[0] },
-      { label: `${b1}-${b0 - 1} ${u} (${t.labels[1]})`, color: COLORS[1] },
-      { label: `${b2}-${b1 - 1} ${u} (${t.labels[2]})`, color: COLORS[2] },
-      { label: `${b3}-${b2 - 1} ${u} (${t.labels[3]})`, color: COLORS[3] },
-      { label: `0-${b3 - 1} ${u} (${t.labels[4]})`, color: COLORS[4] },
+      { label: `≥${b0} ${u} (${t.labels[0]})`, color: COLORS[0] },
+      { label: `${b1}~${b0} ${u} (${t.labels[1]})`, color: COLORS[1] },
+      { label: `${b2}~${b1} ${u} (${t.labels[2]})`, color: COLORS[2] },
+      { label: `${b3}~${b2} ${u} (${t.labels[3]})`, color: COLORS[3] },
+      { label: `<${b3} ${u} (${t.labels[4]})`, color: COLORS[4] },
     ];
   } else {
     return [
       { label: `≤${b0} ${u} (${t.labels[0]})`, color: COLORS[0] },
-      { label: `${b0 + 1}-${b1} ${u} (${t.labels[1]})`, color: COLORS[1] },
-      { label: `${b1 + 1}-${b2} ${u} (${t.labels[2]})`, color: COLORS[2] },
-      { label: `${b2 + 1}-${b3} ${u} (${t.labels[3]})`, color: COLORS[3] },
-      { label: `${b3}+ ${u} (${t.labels[4]})`, color: COLORS[4] },
+      { label: `${b0}~${b1} ${u} (${t.labels[1]})`, color: COLORS[1] },
+      { label: `${b1}~${b2} ${u} (${t.labels[2]})`, color: COLORS[2] },
+      { label: `${b2}~${b3} ${u} (${t.labels[3]})`, color: COLORS[3] },
+      { label: `>${b3} ${u} (${t.labels[4]})`, color: COLORS[4] },
     ];
   }
 }

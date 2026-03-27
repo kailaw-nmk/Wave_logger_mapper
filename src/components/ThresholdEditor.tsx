@@ -7,9 +7,12 @@ import { METRIC_LABELS, DEFAULT_THRESHOLDS } from '@/lib/colorScale';
 // 色定数（colorScale.tsと同じ）
 const COLORS = ['#22c55e', '#84cc16', '#eab308', '#f97316', '#ef4444'];
 
-const ALL_METRICS: Metric[] = [
-  'download_mbps', 'upload_mbps', 'ping_ms', 'udp_ping_ms',
-  'udp_jitter_ms', 'udp_packet_loss_pct', 'udp_download_mbps', 'udp_upload_mbps',
+/** 同じ閾値を共有するメトリクスグループ */
+const METRIC_GROUPS: { label: string; metrics: Metric[] }[] = [
+  { label: '帯域 (Mbps)', metrics: ['download_mbps', 'upload_mbps', 'udp_download_mbps', 'udp_upload_mbps'] },
+  { label: 'Ping (ms)', metrics: ['ping_ms', 'udp_ping_ms'] },
+  { label: 'Jitter (ms)', metrics: ['udp_jitter_ms'] },
+  { label: 'パケットロス (%)', metrics: ['udp_packet_loss_pct'] },
 ];
 
 interface ThresholdEditorProps {
@@ -19,9 +22,12 @@ interface ThresholdEditorProps {
 }
 
 export default function ThresholdEditor({ thresholds, onChange, onClose }: ThresholdEditorProps) {
-  const [activeMetric, setActiveMetric] = useState<Metric>('download_mbps');
+  const [activeGroupIdx, setActiveGroupIdx] = useState(0);
 
-  const t = thresholds[activeMetric];
+  const activeGroup = METRIC_GROUPS[activeGroupIdx];
+  // グループ内の代表メトリクス（最初の1つ）から閾値を取得
+  const representativeMetric = activeGroup.metrics[0];
+  const t = thresholds[representativeMetric];
   const boundaries = t.boundaries;
 
   // 境界値の順序が正しいかチェック
@@ -29,20 +35,23 @@ export default function ThresholdEditor({ thresholds, onChange, onClose }: Thres
     ? boundaries[0] <= boundaries[1] || boundaries[1] <= boundaries[2] || boundaries[2] <= boundaries[3]
     : boundaries[0] >= boundaries[1] || boundaries[1] >= boundaries[2] || boundaries[2] >= boundaries[3];
 
+  /** グループ内の全メトリクスに同じ境界値を適用 */
   function updateBoundary(index: number, value: number) {
     const newBoundaries = [...boundaries] as [number, number, number, number];
     newBoundaries[index] = value;
-    onChange({
-      ...thresholds,
-      [activeMetric]: { ...t, boundaries: newBoundaries },
-    });
+    const updated = { ...thresholds };
+    for (const m of activeGroup.metrics) {
+      updated[m] = { ...updated[m], boundaries: newBoundaries };
+    }
+    onChange(updated);
   }
 
   function resetMetric() {
-    onChange({
-      ...thresholds,
-      [activeMetric]: { ...DEFAULT_THRESHOLDS[activeMetric] },
-    });
+    const updated = { ...thresholds };
+    for (const m of activeGroup.metrics) {
+      updated[m] = { ...DEFAULT_THRESHOLDS[m] };
+    }
+    onChange(updated);
   }
 
   function resetAll() {
@@ -56,18 +65,18 @@ export default function ThresholdEditor({ thresholds, onChange, onClose }: Thres
     if (t.higherIsBetter) {
       switch (index) {
         case 0: return `≥ ${b0} ${u}`;
-        case 1: return `${b1} ~ ${b0 - 1} ${u}`;
-        case 2: return `${b2} ~ ${b1 - 1} ${u}`;
-        case 3: return `${b3} ~ ${b2 - 1} ${u}`;
+        case 1: return `${b1} ~ ${b0} ${u}`;
+        case 2: return `${b2} ~ ${b1} ${u}`;
+        case 3: return `${b3} ~ ${b2} ${u}`;
         case 4: return `< ${b3} ${u}`;
         default: return '';
       }
     } else {
       switch (index) {
         case 0: return `≤ ${b0} ${u}`;
-        case 1: return `${b0 + 1} ~ ${b1} ${u}`;
-        case 2: return `${b1 + 1} ~ ${b2} ${u}`;
-        case 3: return `${b2 + 1} ~ ${b3} ${u}`;
+        case 1: return `${b0} ~ ${b1} ${u}`;
+        case 2: return `${b1} ~ ${b2} ${u}`;
+        case 3: return `${b2} ~ ${b3} ${u}`;
         case 4: return `> ${b3} ${u}`;
         default: return '';
       }
@@ -97,23 +106,25 @@ export default function ThresholdEditor({ thresholds, onChange, onClose }: Thres
           }}>&times;</button>
         </div>
 
-        {/* メトリクスタブ */}
+        {/* メトリクスグループタブ */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 16 }}>
-          {ALL_METRICS.map((m) => {
-            const isModified = JSON.stringify(thresholds[m]) !== JSON.stringify(DEFAULT_THRESHOLDS[m]);
+          {METRIC_GROUPS.map((group, idx) => {
+            const isModified = group.metrics.some(
+              (m) => JSON.stringify(thresholds[m]) !== JSON.stringify(DEFAULT_THRESHOLDS[m]),
+            );
             return (
               <button
-                key={m}
-                onClick={() => setActiveMetric(m)}
+                key={group.label}
+                onClick={() => setActiveGroupIdx(idx)}
                 style={{
                   padding: '4px 8px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
-                  border: m === activeMetric ? '2px solid #3b82f6' : '1px solid #ccc',
-                  background: m === activeMetric ? '#eff6ff' : '#fff',
-                  fontWeight: m === activeMetric ? 600 : 400,
+                  border: idx === activeGroupIdx ? '2px solid #3b82f6' : '1px solid #ccc',
+                  background: idx === activeGroupIdx ? '#eff6ff' : '#fff',
+                  fontWeight: idx === activeGroupIdx ? 600 : 400,
                   position: 'relative',
                 }}
               >
-                {METRIC_LABELS[m].replace(/ \(.*\)/, '')}
+                {group.label}
                 {isModified && (
                   <span style={{
                     position: 'absolute', top: -2, right: -2,
@@ -128,11 +139,16 @@ export default function ThresholdEditor({ thresholds, onChange, onClose }: Thres
         {/* 境界値入力 */}
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
-            {METRIC_LABELS[activeMetric]}
+            {activeGroup.label}
             <span style={{ fontWeight: 400, color: '#888', marginLeft: 8, fontSize: 11 }}>
               {t.higherIsBetter ? '（大きいほど良い）' : '（小さいほど良い）'}
             </span>
           </div>
+          {activeGroup.metrics.length > 1 && (
+            <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>
+              対象: {activeGroup.metrics.map((m) => METRIC_LABELS[m].replace(/ \(.*\)/, '')).join('、')}
+            </div>
+          )}
 
           {/* 5色 × 段階表示 */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -145,7 +161,7 @@ export default function ThresholdEditor({ thresholds, onChange, onClose }: Thres
                     type="number"
                     value={boundaries[i]}
                     onChange={(e) => updateBoundary(i, Number(e.target.value))}
-                    step={t.unit === '%' ? 0.5 : 1}
+                    step="any"
                     style={{
                       width: 70, padding: '3px 6px', borderRadius: 4,
                       border: '1px solid #ccc', fontSize: 13,
@@ -176,7 +192,7 @@ export default function ThresholdEditor({ thresholds, onChange, onClose }: Thres
             padding: '6px 12px', borderRadius: 6, border: '1px solid #ccc',
             background: '#fff', fontSize: 12, cursor: 'pointer',
           }}>
-            このメトリクスをリセット
+            このグループをリセット
           </button>
           <button onClick={resetAll} style={{
             padding: '6px 12px', borderRadius: 6, border: '1px solid #ccc',

@@ -10,6 +10,7 @@ import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { METRIC_LABELS, DEFAULT_THRESHOLDS } from '@/lib/colorScale';
 import type { GroupMode } from '@/lib/groupStyle';
 import { assignGroupStyles } from '@/lib/groupStyle';
+import { downloadProjectFile, validateAndParseProject } from '@/lib/projectFile';
 
 // Leafletはブラウザ専用のためSSR無効
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
@@ -87,6 +88,9 @@ export default function HomePage() {
   const [mapHeightPercent, setMapHeightPercent] = useState(55);
   const mainRef = useRef<HTMLElement>(null);
   const draggingRef = useRef(false);
+
+  // プロジェクトファイル読込用
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -200,6 +204,39 @@ export default function HomePage() {
     setRawRows((prev) => prev.filter((r) => r._sourceFile !== fileName));
     setLoadedFiles((prev) => prev.filter((f) => f !== fileName));
   }
+
+  const handleExport = useCallback(() => {
+    downloadProjectFile({
+      rawRows, loadedFiles, metric, customThresholds,
+      filterEnabled, filterMax, naFilter, groupMode,
+      showChart, binSize, mapHeightPercent,
+    });
+  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent]);
+
+  const handleImport = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const project = validateAndParseProject(reader.result as string);
+        if (rawRows.length > 0 && !confirm('現在のデータを置き換えますか？')) return;
+        setRawRows(project.rawRows);
+        setLoadedFiles(project.loadedFiles);
+        setMetric(project.metric);
+        setCustomThresholds(project.customThresholds);
+        try { localStorage.setItem('wlm_color_thresholds', JSON.stringify(project.customThresholds)); } catch { /* noop */ }
+        setFilterEnabled(project.filterEnabled);
+        setFilterMax(project.filterMax);
+        setNaFilter(project.naFilter);
+        setGroupMode(project.groupMode);
+        setShowChart(project.showChart);
+        setBinSize(project.binSize);
+        setMapHeightPercent(project.mapHeightPercent);
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'プロジェクトファイルの読み込みに失敗しました。');
+      }
+    };
+    reader.readAsText(file);
+  }, [rawRows.length]);
 
   const hasData = data.length > 0;
   const unit = metricUnit(metric);
@@ -351,6 +388,36 @@ export default function HomePage() {
               {showChart ? '\u25B2 グラフ非表示' : '\u25BC グラフ表示'}
             </button>
 
+            {/* プロジェクト保存/読込 */}
+            <button
+              onClick={handleExport}
+              title="プロジェクトファイルを保存"
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid #ccc',
+                background: '#fff',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              ↓ 保存
+            </button>
+            <button
+              onClick={() => importInputRef.current?.click()}
+              title="プロジェクトファイルを読込"
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid #ccc',
+                background: '#fff',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              ↑ 読込
+            </button>
+
             <CsvUploader onFilesLoaded={handleFilesLoaded} compact />
 
             {/* ファイル一覧 */}
@@ -414,6 +481,25 @@ export default function HomePage() {
                 textAlign: 'center',
               }}>
                 Radio Wave Logger で出力した netlog_*.csv ファイルをアップロードしてください（複数可）
+              </p>
+              <p style={{
+                marginTop: 8,
+                fontSize: 13,
+                textAlign: 'center',
+              }}>
+                <button
+                  onClick={() => importInputRef.current?.click()}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#3b82f6',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    textDecoration: 'underline',
+                  }}
+                >
+                  またはプロジェクトファイルを読み込む (.wlm.json)
+                </button>
               </p>
             </div>
           </div>
@@ -580,6 +666,19 @@ export default function HomePage() {
           onClose={() => setShowThresholdEditor(false)}
         />
       )}
+
+      {/* プロジェクトファイル読込用hidden input */}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".wlm.json,.json"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleImport(file);
+          e.target.value = '';
+        }}
+      />
     </div>
   );
 }
