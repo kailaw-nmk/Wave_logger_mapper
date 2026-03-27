@@ -34,6 +34,8 @@ interface MapViewProps {
   thresholds?: CustomThresholds;
   /** 不通ポイント（通常データと重ねて表示） */
   naPoints?: AggregatedRow[];
+  /** 不通フィルタ状態 */
+  naFilter?: 'none' | 'tcp' | 'udp';
 }
 
 /** データ変更時に地図をデータ範囲にフィットさせる */
@@ -93,6 +95,13 @@ interface PolylineGroup {
   vehicleId: string;
 }
 
+/** 不通区間ポリラインセグメント */
+interface NaPolylineSegment {
+  coords: [number, number][];
+  sourceFile: string;
+  vehicleId: string;
+}
+
 /** _sourceFile + vehicle_id でグループ化してポリライン用座標を生成する */
 function buildPolylineGroups(rawRows: CsvRow[]): PolylineGroup[] {
   const groups = new Map<string, PolylineGroup>();
@@ -106,6 +115,50 @@ function buildPolylineGroups(rawRows: CsvRow[]): PolylineGroup[] {
     group.coords.push([row.latitude, row.longitude]);
   }
   return Array.from(groups.values());
+}
+
+/** 連続する不通ポイントをポリラインセグメントに変換する */
+function buildNaPolylineSegments(rawRows: CsvRow[], naFilter: 'tcp' | 'udp'): NaPolylineSegment[] {
+  // _sourceFile::vehicle_id でグループ化
+  const groups = new Map<string, CsvRow[]>();
+  for (const row of rawRows) {
+    const key = `${row._sourceFile}::${row.vehicle_id}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = [];
+      groups.set(key, group);
+    }
+    group.push(row);
+  }
+
+  const isNa = naFilter === 'tcp'
+    ? (r: CsvRow) => r.download_mbps === null && r.upload_mbps === null && r.ping_ms === null
+    : (r: CsvRow) => r.udp_download_mbps === null && r.udp_upload_mbps === null && r.udp_ping_ms === null && r.udp_jitter_ms === null && r.udp_packet_loss_pct === null;
+
+  const segments: NaPolylineSegment[] = [];
+
+  for (const [key, rows] of groups) {
+    const [sourceFile, vehicleId] = key.split('::');
+    let current: [number, number][] = [];
+
+    for (const row of rows) {
+      if (isNa(row)) {
+        current.push([row.latitude, row.longitude]);
+      } else {
+        // 不通でない行が来たらセグメント確定（2点以上のみ）
+        if (current.length >= 2) {
+          segments.push({ coords: current, sourceFile, vehicleId });
+        }
+        current = [];
+      }
+    }
+    // 末尾の不通区間
+    if (current.length >= 2) {
+      segments.push({ coords: current, sourceFile, vehicleId });
+    }
+  }
+
+  return segments;
 }
 
 /** 数値を見やすく丸める */
@@ -205,8 +258,14 @@ function renderMarker(
   );
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [] }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none' }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
+
+  // 不通区間ポリラインセグメント
+  const naPolylineSegments = useMemo(() => {
+    if (naFilter === 'none') return [];
+    return buildNaPolylineSegments(rawRows, naFilter);
+  }, [rawRows, naFilter]);
 
   // ハイライト矩形の緯度範囲を計算（データ全体の緯度範囲 + 余白）
   const latBounds = useMemo(() => {
@@ -259,6 +318,17 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           );
         })}
 
+        {/* 不通区間ポリライン（赤い実線） */}
+        {naPolylineSegments.map((seg, i) => (
+          <Polyline
+            key={`na-polyline-${i}`}
+            positions={seg.coords}
+            weight={4}
+            color="#ef4444"
+            opacity={0.8}
+          />
+        ))}
+
         {/* チャートホバー時の経度帯ハイライト */}
         {highlightLngRange && (
           <Rectangle
@@ -287,7 +357,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         {naPoints.map((row, i) => renderMarker(row, i, 'na', '#6b7280', groupMode, groupStyles, onPointClick))}
       </MapContainer>
 
-      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} />
+      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} />
     </div>
   );
 }

@@ -13,6 +13,8 @@ interface LegendProps {
   thresholds?: CustomThresholds;
   /** 不通ポイント数（0なら非表示） */
   naPointCount?: number;
+  /** 不通区間ポリラインが存在するか */
+  showNaPolyline?: boolean;
 }
 
 /** 凡例用ミニSVG（16×16）をReact要素で描画 */
@@ -59,7 +61,7 @@ function MiniShapeSvg({ shape, borderColor }: { shape: MarkerShape; borderColor:
   );
 }
 
-export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0 }: LegendProps) {
+export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false }: LegendProps) {
   const entries = getLegendEntries(metric, thresholds);
 
   const countLabel = fileCount && fileCount >= 2
@@ -94,6 +96,11 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
         {naPointCount > 0 && (
           <span>
             <span style={{ color: '#6b7280' }}>●</span> 不通 N/A ({naPointCount}件)
+          </span>
+        )}
+        {showNaPolyline && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ display: 'inline-block', width: 16, height: 0, borderTop: '3px solid #ef4444', verticalAlign: 'middle' }} /> 不通区間
           </span>
         )}
       </div>

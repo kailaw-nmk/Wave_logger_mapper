@@ -522,6 +522,7 @@ export default function HomePage() {
                 groupStyles={groupStyles}
                 thresholds={customThresholds}
                 naPoints={naPoints}
+                naFilter={naFilter}
               />
               {/* フィルタ適用中バッジ */}
               {(filterEnabled || naFilter !== 'none') && (
