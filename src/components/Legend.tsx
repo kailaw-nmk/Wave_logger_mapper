@@ -71,7 +71,7 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
     : `計測ポイント: ${pointCount}件`;
 
   const showGroupLegend = groupMode && groupMode !== 'none' && groupStyles && groupStyles.size > 0;
-  const groupHeader = groupMode === 'vehicle' ? '車両ID' : 'ファイル';
+  const groupHeader = groupMode === 'vehicle' ? '車両ID' : groupMode === 'carrier' ? 'キャリア' : 'ファイル';
 
   return (
     <div style={{

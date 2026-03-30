@@ -4,7 +4,7 @@ import type { AggregatedRow } from '@/lib/csvParser';
 export type MarkerShape = 'circle' | 'triangle' | 'square' | 'diamond' | 'pentagon' | 'star';
 
 /** グループモード */
-export type GroupMode = 'none' | 'vehicle' | 'file';
+export type GroupMode = 'none' | 'vehicle' | 'file' | 'carrier';
 
 /** グループごとのスタイル */
 export interface GroupStyle {
@@ -39,5 +39,6 @@ export function assignGroupStyles(groups: string[]): Map<string, GroupStyle> {
 export function getGroupKey(row: AggregatedRow, mode: GroupMode): string | null {
   if (mode === 'vehicle') return row.vehicle_ids[0] ?? null;
   if (mode === 'file') return row.sourceFiles[0] ?? null;
+  if (mode === 'carrier') return row.carriers[0] ?? null;
   return null;
 }

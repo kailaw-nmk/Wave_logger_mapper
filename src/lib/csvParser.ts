@@ -74,6 +74,7 @@ export interface AggregatedRow extends CsvRow {
   sourceFiles: string[];
   vehicle_ids: string[];
   route_types: string[];
+  carriers: string[];
 }
 
 /** 同一座標（小数5桁≒約1m精度）の計測データを平均値に集約する */
@@ -117,6 +118,7 @@ export function aggregateByLocation(rows: CsvRow[]): AggregatedRow[] {
       sourceFiles: [...new Set(group.map((r) => r._sourceFile))],
       vehicle_ids: [...new Set(group.map((r) => r.vehicle_id).filter(Boolean))],
       route_types: [...new Set(group.map((r) => r.route_type).filter(Boolean))],
+      carriers: [...new Set(group.map((r) => r.carrier).filter((c): c is string => c !== null))],
     };
   });
 }
@@ -129,6 +131,7 @@ export function toAggregatedRows(rows: CsvRow[]): AggregatedRow[] {
     sourceFiles: [r._sourceFile],
     vehicle_ids: r.vehicle_id ? [r.vehicle_id] : [],
     route_types: r.route_type ? [r.route_type] : [],
+    carriers: r.carrier ? [r.carrier] : [],
   }));
 }
 

@@ -136,7 +136,9 @@ export default function HomePage() {
     if (groupMode === 'none') return new Map();
     const keys = new Set<string>();
     for (const row of rawRows) {
-      const key = groupMode === 'vehicle' ? row.vehicle_id : row._sourceFile;
+      const key = groupMode === 'vehicle' ? row.vehicle_id
+        : groupMode === 'carrier' ? (row.carrier ?? '')
+        : row._sourceFile;
       if (key) keys.add(key);
     }
     return assignGroupStyles(Array.from(keys));
@@ -436,6 +438,7 @@ export default function HomePage() {
               <option value="none">グループ: なし</option>
               <option value="vehicle">グループ: 車両ID</option>
               <option value="file">グループ: ファイル</option>
+              <option value="carrier">グループ: キャリア</option>
             </select>
 
             {/* グラフ表示ボタン（全メトリクスで表示可能） */}

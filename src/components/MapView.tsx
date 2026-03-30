@@ -95,6 +95,7 @@ interface PolylineGroup {
   coords: [number, number][];
   sourceFile: string;
   vehicleId: string;
+  carrier: string;
 }
 
 /** 不通区間ポリラインセグメント */
@@ -111,7 +112,7 @@ function buildPolylineGroups(rawRows: CsvRow[]): PolylineGroup[] {
     const key = `${row._sourceFile}::${row.vehicle_id}`;
     let group = groups.get(key);
     if (!group) {
-      group = { coords: [], sourceFile: row._sourceFile, vehicleId: row.vehicle_id };
+      group = { coords: [], sourceFile: row._sourceFile, vehicleId: row.vehicle_id, carrier: row.carrier ?? '' };
       groups.set(key, group);
     }
     group.coords.push([row.latitude, row.longitude]);
@@ -311,7 +312,9 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           // グループモード時はポリラインの色をグループ色にする
           let lineColor = '#6b7280';
           if (groupMode !== 'none' && groupStyles) {
-            const gKey = groupMode === 'vehicle' ? group.vehicleId : group.sourceFile;
+            const gKey = groupMode === 'vehicle' ? group.vehicleId
+              : groupMode === 'carrier' ? group.carrier
+              : group.sourceFile;
             const style = gKey ? groupStyles.get(gKey) : undefined;
             if (style) lineColor = style.borderColor;
           }
