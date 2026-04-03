@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useMemo, useCallback, useEffect } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Circle, Marker, Polyline, Popup, Rectangle, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Circle, Marker, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
+import DraggablePopup from './DraggablePopup';
 import type { LatLngBounds } from 'leaflet';
 import type { AggregatedRow, CsvRow } from '@/lib/csvParser';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
@@ -239,7 +240,7 @@ function fmt(v: number | null): string {
 /** ポップアップ内容を生成 */
 function buildPopup(row: AggregatedRow) {
   return (
-    <Popup maxWidth={320} autoClose={false} closeOnClick={false}>
+    <DraggablePopup maxWidth={320}>
       <div style={{ fontSize: 13, lineHeight: 1.6 }}>
         <p style={{ margin: 0, fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>基本情報</p>
         <p style={{ margin: 0 }}><b>日時:</b> {row.timestamp}</p>
@@ -278,7 +279,7 @@ function buildPopup(row: AggregatedRow) {
           📍 ストリートビューを開く
         </a>
       </div>
-    </Popup>
+    </DraggablePopup>
   );
 }
 
@@ -351,7 +352,7 @@ function renderMarker(
 /** 分析クラスタのポップアップ内容を生成 */
 function buildClusterPopup(cluster: AnalysisCluster) {
   return (
-    <Popup maxWidth={320} autoClose={false} closeOnClick={false}>
+    <DraggablePopup maxWidth={320}>
       <div style={{ fontSize: 13, lineHeight: 1.6 }}>
         <p style={{ margin: 0, fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>
           {cluster.type === 'futsu' ? '完全不通エリア' : '低速不通エリア'}
@@ -390,7 +391,7 @@ function buildClusterPopup(cluster: AnalysisCluster) {
           ストリートビューを開く
         </a>
       </div>
-    </Popup>
+    </DraggablePopup>
   );
 }
 
@@ -411,7 +412,7 @@ function getClusterGroupKey(cluster: AnalysisCluster, mode: GroupMode): string |
 /** 参考データのポップアップ内容を生成 */
 function buildReferencePopup(point: ReferencePoint) {
   return (
-    <Popup maxWidth={300} autoClose={false} closeOnClick={false}>
+    <DraggablePopup maxWidth={300}>
       <div style={{ fontSize: 13, lineHeight: 1.6 }}>
         <p style={{ margin: 0, fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>
           #{point.rank} {point.label}
@@ -432,7 +433,7 @@ function buildReferencePopup(point: ReferencePoint) {
           ストリートビューを開く
         </a>
       </div>
-    </Popup>
+    </DraggablePopup>
   );
 }
 
