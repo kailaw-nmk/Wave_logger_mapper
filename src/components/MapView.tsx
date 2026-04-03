@@ -6,7 +6,7 @@ import type { LatLngBounds } from 'leaflet';
 import type { AggregatedRow, CsvRow } from '@/lib/csvParser';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { getColor, METRIC_LABELS } from '@/lib/colorScale';
-import type { AnalysisCluster, FutsuCluster, TeisokuCluster } from '@/lib/analysisParser';
+import type { AnalysisCluster, FutsuCluster, TeisokuCluster, ReferencePoint } from '@/lib/analysisParser';
 import type { GroupMode, GroupStyle } from '@/lib/groupStyle';
 import { getGroupKey } from '@/lib/groupStyle';
 import { createShapeIcon } from '@/lib/svgMarkerIcon';
@@ -45,6 +45,10 @@ interface MapViewProps {
   showAnalysisLayer?: boolean;
   /** 計測レイヤー表示 */
   showMeasurementLayer?: boolean;
+  /** 参考データ */
+  referencePoints?: ReferencePoint[];
+  /** 参考データレイヤー表示 */
+  showReferenceLayer?: boolean;
 }
 
 /** データ変更時に地図をデータ範囲にフィットさせる */
@@ -379,7 +383,35 @@ function getClusterGroupKey(cluster: AnalysisCluster, mode: GroupMode): string |
   return null;
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true }: MapViewProps) {
+/** 参考データのポップアップ内容を生成 */
+function buildReferencePopup(point: ReferencePoint) {
+  return (
+    <Popup maxWidth={300}>
+      <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+        <p style={{ margin: 0, fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>
+          #{point.rank} {point.label}
+        </p>
+        {point.direction && <p style={{ margin: 0 }}><b>進行方向:</b> {point.direction}</p>}
+        {point.distance_m > 0 && <p style={{ margin: 0 }}><b>配信失敗距離:</b> {point.distance_m.toLocaleString()} m</p>}
+        <a
+          href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${point.lat},${point.lon}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            marginTop: 8, padding: '6px 12px',
+            background: '#4285f4', color: '#fff', borderRadius: 6,
+            fontSize: 12, fontWeight: 600, textDecoration: 'none',
+          }}
+        >
+          ストリートビューを開く
+        </a>
+      </div>
+    </Popup>
+  );
+}
+
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // 不通区間ポリラインセグメント
@@ -398,26 +430,35 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
     return { min: minLat - padding, max: maxLat + padding };
   }, [data]);
 
-  // 分析クラスタを擬似的にAggregatedRow形式に変換（FitBounds用）
-  const clusterAsPoints = useMemo((): AggregatedRow[] => {
-    if (!showAnalysisLayer || analysisClusters.length === 0) return [];
-    return analysisClusters.map((c) => ({
+  // 分析クラスタ・参考データを擬似的にAggregatedRow形式に変換（FitBounds用）
+  const overlayAsPoints = useMemo((): AggregatedRow[] => {
+    const points: AggregatedRow[] = [];
+    const dummy = {
       timestamp: '', vehicle_id: '', route_type: '',
-      latitude: c.lat_center, longitude: c.lon_center,
       accuracy: null, download_mbps: null, upload_mbps: null, ping_ms: null,
       udp_ping_ms: null, udp_jitter_ms: null, udp_packet_loss_pct: null,
       udp_download_mbps: null, udp_upload_mbps: null,
       connection_type: '', cellular_gen: null, carrier: null, signal_dbm: null, memo: '',
-      _sourceFile: c._sourceFile,
-      count: 1, sourceFiles: [c._sourceFile], vehicle_ids: [], route_types: [], carriers: [c.carrier].filter(Boolean),
-    }));
-  }, [analysisClusters, showAnalysisLayer]);
+      count: 1, vehicle_ids: [] as string[], route_types: [] as string[],
+    };
+    if (showAnalysisLayer) {
+      for (const c of analysisClusters) {
+        points.push({ ...dummy, latitude: c.lat_center, longitude: c.lon_center, _sourceFile: c._sourceFile, sourceFiles: [c._sourceFile], carriers: [c.carrier].filter(Boolean) });
+      }
+    }
+    if (showReferenceLayer) {
+      for (const r of referencePoints) {
+        points.push({ ...dummy, latitude: r.lat, longitude: r.lon, _sourceFile: r._sourceFile, sourceFiles: [r._sourceFile], carriers: [] });
+      }
+    }
+    return points;
+  }, [analysisClusters, showAnalysisLayer, referencePoints, showReferenceLayer]);
 
   // 表示対象ポイント（FitBounds・center計算用）
   const visiblePoints = useMemo(() => {
     const measurementPoints = naOnly && naPoints.length > 0 ? naPoints : (showMeasurementLayer ? data : []);
-    return [...measurementPoints, ...clusterAsPoints];
-  }, [data, naOnly, naPoints, showMeasurementLayer, clusterAsPoints]);
+    return [...measurementPoints, ...overlayAsPoints];
+  }, [data, naOnly, naPoints, showMeasurementLayer, overlayAsPoints]);
 
   if (visiblePoints.length === 0) return null;
 
@@ -538,9 +579,26 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
             </React.Fragment>
           );
         })}
+
+        {/* 参考データマーカー */}
+        {showReferenceLayer && referencePoints.map((point, i) => (
+          <CircleMarker
+            key={`ref-${i}`}
+            center={[point.lat, point.lon]}
+            radius={8}
+            pathOptions={{
+              color: '#0ea5e9',
+              fillColor: '#0ea5e9',
+              fillOpacity: 0.8,
+              weight: 2,
+            }}
+          >
+            {buildReferencePopup(point)}
+          </CircleMarker>
+        ))}
       </MapContainer>
 
-      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} analysisClusterCount={showAnalysisLayer ? analysisClusters.length : 0} analysisFutsuCount={showAnalysisLayer ? analysisClusters.filter((c) => c.type === 'futsu').length : 0} />
+      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} analysisClusterCount={showAnalysisLayer ? analysisClusters.length : 0} analysisFutsuCount={showAnalysisLayer ? analysisClusters.filter((c) => c.type === 'futsu').length : 0} referencePointCount={showReferenceLayer ? referencePoints.length : 0} />
     </div>
   );
 }

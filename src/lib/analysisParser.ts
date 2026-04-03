@@ -39,11 +39,23 @@ export interface TeisokuCluster {
   _sourceFile: string;
 }
 
+/** 参考データ（座標＋ポップアップ情報）の行 */
+export interface ReferencePoint {
+  type: 'reference';
+  rank: number;
+  label: string;
+  direction: string;
+  distance_m: number;
+  lat: number;
+  lon: number;
+  _sourceFile: string;
+}
+
 /** 分析クラスタの共用型 */
 export type AnalysisCluster = FutsuCluster | TeisokuCluster;
 
 /** CSVの種別 */
-export type CsvType = 'measurement' | 'futsu' | 'teisoku';
+export type CsvType = 'measurement' | 'futsu' | 'teisoku' | 'reference';
 
 /** CSVヘッダーからファイル種別を自動判別する */
 export function detectCsvType(text: string): CsvType {
@@ -58,6 +70,10 @@ export function detectCsvType(text: string): CsvType {
   // 完全不通エリア: cluster_id + point_count + lat_center が存在
   if (columns.includes('cluster_id') && columns.includes('point_count') && columns.includes('lat_center')) {
     return 'futsu';
+  }
+  // 参考データ: 順位 + 緯度 + 経度 が存在
+  if (columns.includes('順位') && columns.includes('緯度') && columns.includes('経度')) {
+    return 'reference';
   }
   return 'measurement';
 }
@@ -121,4 +137,33 @@ export function parseTeisokuCsv(text: string, sourceFile: string): TeisokuCluste
       _sourceFile: sourceFile,
     }))
     .filter((row) => !isNaN(row.lat_center) && !isNaN(row.lon_center));
+}
+
+/** 参考データCSVをパースする（順位・緯度・経度を含む汎用形式） */
+export function parseReferenceCsv(text: string, sourceFile: string): ReferencePoint[] {
+  const cleaned = text.replace(/^\uFEFF/, '');
+  const result = Papa.parse<Record<string, string>>(cleaned, {
+    header: true,
+    skipEmptyLines: true,
+  });
+
+  // ヘッダーからラベル列と距離列を自動検出
+  const headers = result.meta.fields ?? [];
+  const labelCol = headers.find((h) => h !== '順位' && h !== '緯度' && h !== '経度' && h !== '進行方向' && !h.includes('距離')) ?? '';
+  const dirCol = headers.find((h) => h === '進行方向') ?? '';
+  const distCol = headers.find((h) => h.includes('距離')) ?? '';
+
+  return result.data
+    .filter((row) => row['緯度'] && row['経度'])
+    .map((row) => ({
+      type: 'reference' as const,
+      rank: parseInt(row['順位'], 10) || 0,
+      label: labelCol ? (row[labelCol] ?? '') : '',
+      direction: dirCol ? (row[dirCol] ?? '') : '',
+      distance_m: distCol ? (parseFloat(row[distCol]) || 0) : 0,
+      lat: parseFloat(row['緯度']),
+      lon: parseFloat(row['経度']),
+      _sourceFile: sourceFile,
+    }))
+    .filter((row) => !isNaN(row.lat) && !isNaN(row.lon));
 }

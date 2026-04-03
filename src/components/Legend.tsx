@@ -20,6 +20,8 @@ interface LegendProps {
   analysisClusterCount?: number;
   /** 完全不通エリアクラスタ数 */
   analysisFutsuCount?: number;
+  /** 参考データポイント数 */
+  referencePointCount?: number;
 }
 
 /** 凡例用ミニSVG（16×16）をReact要素で描画 */
@@ -66,7 +68,7 @@ function MiniShapeSvg({ shape, borderColor }: { shape: MarkerShape; borderColor:
   );
 }
 
-export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false, analysisClusterCount = 0, analysisFutsuCount = 0 }: LegendProps) {
+export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false, analysisClusterCount = 0, analysisFutsuCount = 0, referencePointCount = 0 }: LegendProps) {
   const [collapsed, setCollapsed] = useState(false);
   const entries = getLegendEntries(metric, thresholds);
 
@@ -142,6 +144,11 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
                   </span>
                 )}
               </>
+            )}
+            {referencePointCount > 0 && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#0ea5e9' }} /> 参考データ ({referencePointCount})
+              </span>
             )}
           </div>
 

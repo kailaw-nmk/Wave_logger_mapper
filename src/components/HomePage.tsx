@@ -5,8 +5,8 @@ import dynamic from 'next/dynamic';
 import CsvUploader from '@/components/CsvUploader';
 import type { CsvRow } from '@/lib/csvParser';
 import { parseCsv, aggregateByLocation, toAggregatedRows } from '@/lib/csvParser';
-import type { AnalysisCluster } from '@/lib/analysisParser';
-import { detectCsvType, parseFutsuCsv, parseTeisokuCsv } from '@/lib/analysisParser';
+import type { AnalysisCluster, ReferencePoint } from '@/lib/analysisParser';
+import { detectCsvType, parseFutsuCsv, parseTeisokuCsv, parseReferenceCsv } from '@/lib/analysisParser';
 import type { MapBounds } from '@/components/MapView';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { METRIC_LABELS, DEFAULT_THRESHOLDS, syncGroupThresholds } from '@/lib/colorScale';
@@ -64,9 +64,12 @@ export default function HomePage() {
 
   // 分析クラスタデータ
   const [analysisClusters, setAnalysisClusters] = useState<AnalysisCluster[]>([]);
+  // 参考データ
+  const [referencePoints, setReferencePoints] = useState<ReferencePoint[]>([]);
   // レイヤー表示切替
   const [showMeasurementLayer, setShowMeasurementLayer] = useState(true);
   const [showAnalysisLayer, setShowAnalysisLayer] = useState(true);
+  const [showReferenceLayer, setShowReferenceLayer] = useState(true);
   const [metric, setMetric] = useState<Metric>('download_mbps');
 
   // カラー閾値（読み込み時にグループ内を同期）
@@ -233,6 +236,7 @@ export default function HomePage() {
     (files: { text: string; fileName: string }[]) => {
       const newRows: CsvRow[] = [];
       const newClusters: AnalysisCluster[] = [];
+      const newRefs: ReferencePoint[] = [];
       const newFileNames: string[] = [];
 
       for (const { text, fileName } of files) {
@@ -260,6 +264,14 @@ export default function HomePage() {
           }
           newClusters.push(...clusters);
           newFileNames.push(fileName);
+        } else if (csvType === 'reference') {
+          const refs = parseReferenceCsv(text, fileName);
+          if (refs.length === 0) {
+            alert(`「${fileName}」に有効な参考データがありません`);
+            continue;
+          }
+          newRefs.push(...refs);
+          newFileNames.push(fileName);
         } else {
           const rows = parseCsv(text, fileName);
           if (rows.length === 0) {
@@ -277,6 +289,9 @@ export default function HomePage() {
       if (newClusters.length > 0) {
         setAnalysisClusters((prev) => [...prev, ...newClusters]);
       }
+      if (newRefs.length > 0) {
+        setReferencePoints((prev) => [...prev, ...newRefs]);
+      }
       if (newFileNames.length > 0) {
         setLoadedFiles((prev) => [...prev, ...newFileNames]);
       }
@@ -287,6 +302,7 @@ export default function HomePage() {
   function handleFileRemove(fileName: string) {
     setRawRows((prev) => prev.filter((r) => r._sourceFile !== fileName));
     setAnalysisClusters((prev) => prev.filter((c) => c._sourceFile !== fileName));
+    setReferencePoints((prev) => prev.filter((r) => r._sourceFile !== fileName));
     setLoadedFiles((prev) => prev.filter((f) => f !== fileName));
   }
 
@@ -327,7 +343,7 @@ export default function HomePage() {
     reader.readAsText(file);
   }, [rawRows.length]);
 
-  const hasData = data.length > 0 || analysisClusters.length > 0;
+  const hasData = data.length > 0 || analysisClusters.length > 0 || referencePoints.length > 0;
   const unit = metricUnit(metric);
   const filterStep = isPingMetric(metric) ? 10 : 5;
 
@@ -581,7 +597,7 @@ export default function HomePage() {
             </button>
 
             {/* レイヤー切替 */}
-            {(rawRows.length > 0 || analysisClusters.length > 0) && (
+            {(rawRows.length > 0 || analysisClusters.length > 0 || referencePoints.length > 0) && (
               <div style={{ display: 'flex', gap: 4, fontSize: 13 }}>
                 {rawRows.length > 0 && (
                   <button
@@ -607,6 +623,19 @@ export default function HomePage() {
                     }}
                   >
                     {showAnalysisLayer ? '■' : '□'} 分析エリア ({analysisClusters.length})
+                  </button>
+                )}
+                {referencePoints.length > 0 && (
+                  <button
+                    onClick={() => setShowReferenceLayer((v) => !v)}
+                    style={{
+                      padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                      border: showReferenceLayer ? '2px solid #0ea5e9' : '1px solid #ccc',
+                      background: showReferenceLayer ? '#e0f2fe' : '#fff',
+                      fontWeight: showReferenceLayer ? 600 : 400,
+                    }}
+                  >
+                    {showReferenceLayer ? '■' : '□'} 参考データ ({referencePoints.length})
                   </button>
                 )}
               </div>
@@ -649,14 +678,15 @@ export default function HomePage() {
               {loadedFiles.map((f) => {
                 const measureCount = rawRows.filter((r) => r._sourceFile === f).length;
                 const clusterCount = analysisClusters.filter((c) => c._sourceFile === f).length;
-                const label = clusterCount > 0 ? `${clusterCount}クラスタ` : `${measureCount}件`;
+                const refCount = referencePoints.filter((r) => r._sourceFile === f).length;
+                const label = refCount > 0 ? `${refCount}地点` : clusterCount > 0 ? `${clusterCount}クラスタ` : `${measureCount}件`;
                 return (
                   <span
                     key={f}
                     style={{
                       fontSize: 12,
                       color: '#555',
-                      background: clusterCount > 0 ? '#fef3c7' : '#f0f0f0',
+                      background: refCount > 0 ? '#e0f2fe' : clusterCount > 0 ? '#fef3c7' : '#f0f0f0',
                       padding: '2px 8px',
                       borderRadius: 4,
                       display: 'inline-flex',
@@ -754,6 +784,8 @@ export default function HomePage() {
                 analysisClusters={carrierFilteredClusters}
                 showAnalysisLayer={showAnalysisLayer}
                 showMeasurementLayer={showMeasurementLayer}
+                referencePoints={referencePoints}
+                showReferenceLayer={showReferenceLayer}
               />
               {/* フィルタ適用中バッジ */}
               {(filterEnabled || naFilter !== 'none') && (
