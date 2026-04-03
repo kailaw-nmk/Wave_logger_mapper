@@ -97,6 +97,8 @@ export default function HomePage() {
   const [naOnly, setNaOnly] = useState(false);
   // 集約モード: true=近傍点を集約, false=全測定点を個別表示
   const [aggregate, setAggregate] = useState(true);
+  // キャリアフィルタ: 選択中のキャリア（空=全表示）
+  const [selectedCarriers, setSelectedCarriers] = useState<Set<string>>(new Set());
 
   // チャート
   const [showChart, setShowChart] = useState(false);
@@ -137,7 +139,31 @@ export default function HomePage() {
     };
   }, []);
 
-  const data = useMemo(() => aggregate ? aggregateByLocation(rawRows) : toAggregatedRows(rawRows), [rawRows, aggregate]);
+  // データに含まれるキャリア一覧
+  const availableCarriers = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of rawRows) {
+      if (row.carrier) set.add(row.carrier);
+    }
+    for (const cluster of analysisClusters) {
+      if (cluster.carrier) set.add(cluster.carrier);
+    }
+    return Array.from(set).sort();
+  }, [rawRows, analysisClusters]);
+
+  // キャリアフィルタ適用後の生データ
+  const carrierFilteredRows = useMemo(() => {
+    if (selectedCarriers.size === 0) return rawRows;
+    return rawRows.filter((r) => r.carrier !== null && selectedCarriers.has(r.carrier));
+  }, [rawRows, selectedCarriers]);
+
+  // キャリアフィルタ適用後の分析クラスタ
+  const carrierFilteredClusters = useMemo(() => {
+    if (selectedCarriers.size === 0) return analysisClusters;
+    return analysisClusters.filter((c) => selectedCarriers.has(c.carrier));
+  }, [analysisClusters, selectedCarriers]);
+
+  const data = useMemo(() => aggregate ? aggregateByLocation(carrierFilteredRows) : toAggregatedRows(carrierFilteredRows), [carrierFilteredRows, aggregate]);
 
   // グループスタイルを計算（分析クラスタのキーも含める）
   const groupStyles = useMemo(() => {
@@ -171,17 +197,17 @@ export default function HomePage() {
     return result;
   }, [data, filterEnabled, filterMax, metric]);
 
-  // 不通ポイント（N/Aフィルタ有効時のみ — 生データから判定）
+  // 不通ポイント（N/Aフィルタ有効時のみ — キャリアフィルタ適用済みデータから判定）
   const naPoints = useMemo(() => {
     if (naFilter === 'none') return [];
     const fn = naFilter === 'tcp' ? isTcpNa : naFilter === 'udp' ? isUdpNa : isBothNa;
-    const naRaw = rawRows.filter(fn);
+    const naRaw = carrierFilteredRows.filter(fn);
     return aggregate ? aggregateByLocation(naRaw) : toAggregatedRows(naRaw);
-  }, [rawRows, naFilter, aggregate]);
+  }, [carrierFilteredRows, naFilter, aggregate]);
 
   // フィルタ後の生データ（チャート用）
   const filteredRaw = useMemo(() => {
-    let result = rawRows;
+    let result = carrierFilteredRows;
     if (filterEnabled) {
       const higherWorse = isHigherWorse(metric);
       result = result.filter((row) => {
@@ -190,7 +216,7 @@ export default function HomePage() {
       });
     }
     return result;
-  }, [rawRows, filterEnabled, filterMax, metric]);
+  }, [carrierFilteredRows, filterEnabled, filterMax, metric]);
 
   // マップ表示範囲内の生データ（チャート用）
   const chartData = useMemo(() => {
@@ -487,6 +513,58 @@ export default function HomePage() {
               <option value="carrier">グループ: キャリア</option>
             </select>
 
+            {/* キャリアフィルタ */}
+            {availableCarriers.length >= 2 && (
+              <div style={{ display: 'flex', gap: 4, fontSize: 13, alignItems: 'center' }}>
+                <span style={{ color: '#666' }}>キャリア:</span>
+                {availableCarriers.map((c) => {
+                  const active = selectedCarriers.size === 0 || selectedCarriers.has(c);
+                  return (
+                    <button
+                      key={c}
+                      onClick={() => {
+                        setSelectedCarriers((prev) => {
+                          const next = new Set(prev);
+                          if (prev.size === 0) {
+                            // 全表示→このキャリアだけ選択
+                            return new Set([c]);
+                          }
+                          if (next.has(c)) {
+                            next.delete(c);
+                            // 全部外れたら全表示に戻す
+                            return next.size === 0 ? new Set<string>() : next;
+                          }
+                          next.add(c);
+                          // 全キャリアが選択されたら全表示に戻す
+                          return next.size === availableCarriers.length ? new Set<string>() : next;
+                        });
+                      }}
+                      style={{
+                        padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                        border: active ? '2px solid #8b5cf6' : '1px solid #ccc',
+                        background: active ? '#f5f3ff' : '#f5f5f5',
+                        fontWeight: active ? 600 : 400,
+                        opacity: active ? 1 : 0.5,
+                      }}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+                {selectedCarriers.size > 0 && (
+                  <button
+                    onClick={() => setSelectedCarriers(new Set())}
+                    style={{
+                      padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                      border: '1px solid #ccc', background: '#fff', fontSize: 12,
+                    }}
+                  >
+                    全表示
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* グラフ表示ボタン（全メトリクスで表示可能） */}
             <button
               onClick={() => setShowChart((v) => !v)}
@@ -673,7 +751,7 @@ export default function HomePage() {
                 naPoints={naPoints}
                 naFilter={naFilter}
                 naOnly={naOnly}
-                analysisClusters={analysisClusters}
+                analysisClusters={carrierFilteredClusters}
                 showAnalysisLayer={showAnalysisLayer}
                 showMeasurementLayer={showMeasurementLayer}
               />
