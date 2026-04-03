@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { Popup, useMap } from 'react-leaflet';
 import type { Popup as LPopup } from 'leaflet';
 
@@ -9,176 +9,138 @@ interface DraggablePopupProps {
   children: React.ReactNode;
 }
 
-/**
- * ドラッグ可能なポップアップ。
- * ドラッグ中はマーカーとポップアップを結ぶ点線を表示する。
- */
+/** SVGコンテナを取得（なければ作成） */
+function getOrCreateSvg(container: HTMLElement): SVGSVGElement {
+  let existing = container.querySelector('.wlm-popup-lines') as SVGSVGElement | null;
+  if (!existing) {
+    existing = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    existing.classList.add('wlm-popup-lines');
+    existing.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:650';
+    container.appendChild(existing);
+  }
+  return existing;
+}
+
 export default function DraggablePopup({ maxWidth = 320, children }: DraggablePopupProps) {
-  const popupRef = useRef<LPopup>(null);
   const map = useMap();
   const lineRef = useRef<SVGLineElement | null>(null);
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const cleanupRef = useRef<(() => void) | null>(null);
+  const cleanupFnRef = useRef<(() => void) | null>(null);
 
-  /** SVGコンテナを取得（なければ作成） */
-  const getOrCreateSvg = useCallback(() => {
-    if (svgRef.current) return svgRef.current;
-    // 既存のSVGコンテナがあれば再利用
-    const container = map.getContainer();
-    let existing = container.querySelector('.wlm-popup-lines') as SVGSVGElement | null;
-    if (!existing) {
-      existing = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      existing.classList.add('wlm-popup-lines');
-      existing.style.position = 'absolute';
-      existing.style.top = '0';
-      existing.style.left = '0';
-      existing.style.width = '100%';
-      existing.style.height = '100%';
-      existing.style.pointerEvents = 'none';
-      existing.style.zIndex = '650';
-      container.appendChild(existing);
-    }
-    svgRef.current = existing;
-    return existing;
+  const onAdd = useCallback((e: { target: LPopup }) => {
+    const popup = e.target;
+    // 少し遅延してDOM確定後にセットアップ
+    requestAnimationFrame(() => {
+      const el = popup.getElement();
+      if (!el) return;
+
+      // 前回のクリーンアップ
+      if (cleanupFnRef.current) {
+        cleanupFnRef.current();
+        cleanupFnRef.current = null;
+      }
+
+      const tip = el.querySelector('.leaflet-popup-tip-container') as HTMLElement | null;
+      const wrapper = el.querySelector('.leaflet-popup-content-wrapper') as HTMLElement | null;
+      if (!wrapper) return;
+
+      wrapper.style.cursor = 'grab';
+
+      // 接続線を作成
+      const svg = getOrCreateSvg(map.getContainer());
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('stroke', '#333');
+      line.setAttribute('stroke-width', '1.5');
+      line.setAttribute('stroke-dasharray', '4 3');
+      line.style.display = 'none';
+      svg.appendChild(line);
+      lineRef.current = line;
+
+      let isDragged = false;
+
+      function updateLine() {
+        const popupEl = popup.getElement();
+        if (!popupEl) return;
+        const container = map.getContainer();
+        const cRect = container.getBoundingClientRect();
+        const pRect = popupEl.getBoundingClientRect();
+        const latlng = popup.getLatLng();
+        if (!latlng) return;
+        const mp = map.latLngToContainerPoint(latlng);
+        line.setAttribute('x1', String(mp.x));
+        line.setAttribute('y1', String(mp.y));
+        line.setAttribute('x2', String(pRect.left + pRect.width / 2 - cRect.left));
+        line.setAttribute('y2', String(pRect.top + pRect.height - cRect.top));
+      }
+
+      function onMouseDown(evt: MouseEvent) {
+        const tgt = evt.target as HTMLElement;
+        if (tgt.closest('a') || tgt.closest('button') || tgt.closest('input') || tgt.closest('.leaflet-popup-close-button')) return;
+
+        evt.preventDefault();
+        evt.stopPropagation();
+        map.dragging.disable();
+
+        const popupEl = popup.getElement()!;
+        const rect = popupEl.getBoundingClientRect();
+        const ox = evt.clientX - rect.left;
+        const oy = evt.clientY - rect.top;
+
+        if (tip) tip.style.display = 'none';
+        line.style.display = '';
+        isDragged = true;
+        updateLine();
+        wrapper!.style.cursor = 'grabbing';
+
+        function onMove(ev: MouseEvent) {
+          const cRect = map.getContainer().getBoundingClientRect();
+          popupEl.style.transform = 'none';
+          popupEl.style.position = 'absolute';
+          popupEl.style.left = `${ev.clientX - cRect.left - ox}px`;
+          popupEl.style.top = `${ev.clientY - cRect.top - oy}px`;
+          updateLine();
+        }
+
+        function onUp() {
+          map.dragging.enable();
+          wrapper!.style.cursor = 'grab';
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+        }
+
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      }
+
+      function onMapMove() {
+        if (isDragged) updateLine();
+      }
+
+      wrapper.addEventListener('mousedown', onMouseDown);
+      map.on('move zoom', onMapMove);
+
+      cleanupFnRef.current = () => {
+        wrapper.removeEventListener('mousedown', onMouseDown);
+        map.off('move zoom', onMapMove);
+        if (line.parentNode) line.parentNode.removeChild(line);
+        lineRef.current = null;
+      };
+    });
   }, [map]);
 
-  /** ポップアップが開かれた後にドラッグ機能をセットアップ */
-  const setupDrag = useCallback(() => {
-    const popup = popupRef.current;
-    if (!popup) return;
-    const el = popup.getElement();
-    if (!el) return;
-
-    // 前回のクリーンアップ
-    if (cleanupRef.current) {
-      cleanupRef.current();
-      cleanupRef.current = null;
+  const onRemove = useCallback(() => {
+    if (cleanupFnRef.current) {
+      cleanupFnRef.current();
+      cleanupFnRef.current = null;
     }
-
-    const tip = el.querySelector('.leaflet-popup-tip-container') as HTMLElement | null;
-    const wrapper = el.querySelector('.leaflet-popup-content-wrapper') as HTMLElement | null;
-    if (!wrapper) return;
-
-    wrapper.style.cursor = 'grab';
-
-    // ライン要素を作成
-    const svg = getOrCreateSvg();
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('stroke', '#333');
-    line.setAttribute('stroke-width', '1.5');
-    line.setAttribute('stroke-dasharray', '4 3');
-    line.style.display = 'none';
-    svg.appendChild(line);
-    lineRef.current = line;
-
-    let isDragged = false;
-
-    function getMarkerPoint() {
-      const latlng = popup!.getLatLng();
-      if (!latlng) return { x: 0, y: 0 };
-      const pt = map.latLngToContainerPoint(latlng);
-      return { x: pt.x, y: pt.y };
-    }
-
-    function updateLine() {
-      const popupEl = popup!.getElement();
-      if (!popupEl || !line) return;
-      const container = map.getContainer();
-      const containerRect = container.getBoundingClientRect();
-      const popupRect = popupEl.getBoundingClientRect();
-      const popupCenterX = popupRect.left + popupRect.width / 2 - containerRect.left;
-      const popupBottomY = popupRect.top + popupRect.height - containerRect.top;
-      const mp = getMarkerPoint();
-      line.setAttribute('x1', String(mp.x));
-      line.setAttribute('y1', String(mp.y));
-      line.setAttribute('x2', String(popupCenterX));
-      line.setAttribute('y2', String(popupBottomY));
-    }
-
-    function onMouseDown(e: MouseEvent) {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'A' || target.tagName === 'BUTTON' || target.tagName === 'INPUT' ||
-          target.closest('a') || target.closest('button') || target.closest('input')) {
-        return;
-      }
-      // 閉じるボタン（×）のクリックは除外
-      if (target.closest('.leaflet-popup-close-button')) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-      map.dragging.disable();
-
-      const popupEl = popup!.getElement()!;
-      const rect = popupEl.getBoundingClientRect();
-      const offsetX = e.clientX - rect.left;
-      const offsetY = e.clientY - rect.top;
-
-      if (tip) tip.style.display = 'none';
-      line.style.display = '';
-      isDragged = true;
-      updateLine();
-      wrapper!.style.cursor = 'grabbing';
-
-      function onMouseMove(ev: MouseEvent) {
-        const container = map.getContainer();
-        const containerRect = container.getBoundingClientRect();
-        const newLeft = ev.clientX - containerRect.left - offsetX;
-        const newTop = ev.clientY - containerRect.top - offsetY;
-
-        popupEl.style.transform = 'none';
-        popupEl.style.left = `${newLeft}px`;
-        popupEl.style.top = `${newTop}px`;
-        popupEl.style.position = 'absolute';
-
-        updateLine();
-      }
-
-      function onMouseUp() {
-        map.dragging.enable();
-        wrapper!.style.cursor = 'grab';
-        window.removeEventListener('mousemove', onMouseMove);
-        window.removeEventListener('mouseup', onMouseUp);
-      }
-
-      window.addEventListener('mousemove', onMouseMove);
-      window.addEventListener('mouseup', onMouseUp);
-    }
-
-    function onMapMove() {
-      if (isDragged && line.style.display !== 'none') {
-        updateLine();
-      }
-    }
-
-    wrapper.addEventListener('mousedown', onMouseDown);
-    map.on('move zoom', onMapMove);
-
-    cleanupRef.current = () => {
-      wrapper.removeEventListener('mousedown', onMouseDown);
-      map.off('move zoom', onMapMove);
-      if (line.parentNode) line.parentNode.removeChild(line);
-      lineRef.current = null;
-    };
-  }, [map, getOrCreateSvg]);
-
-  useEffect(() => {
-    const popup = popupRef.current;
-    if (!popup) return;
-
-    // ポップアップが開かれたときにセットアップ
-    popup.on('add', setupDrag);
-
-    return () => {
-      popup.off('add', setupDrag);
-      if (cleanupRef.current) {
-        cleanupRef.current();
-        cleanupRef.current = null;
-      }
-    };
-  }, [setupDrag]);
+  }, []);
 
   return (
-    <Popup ref={popupRef} maxWidth={maxWidth} autoClose={false} closeOnClick={false}>
+    <Popup
+      maxWidth={maxWidth}
+      autoClose={false}
+      closeOnClick={false}
+      eventHandlers={{ add: onAdd, remove: onRemove }}
+    >
       {children}
     </Popup>
   );
