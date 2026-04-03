@@ -13,12 +13,15 @@ import { METRIC_LABELS, DEFAULT_THRESHOLDS, syncGroupThresholds } from '@/lib/co
 import type { GroupMode } from '@/lib/groupStyle';
 import { assignGroupStyles } from '@/lib/groupStyle';
 import { downloadProjectFile, validateAndParseProject } from '@/lib/projectFile';
+import type { MarkerStyles } from '@/lib/markerStyle';
+import { DEFAULT_MARKER_STYLES } from '@/lib/markerStyle';
 
 // Leafletはブラウザ専用のためSSR無効
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
 // SpeedChartもブラウザ専用のためSSR無効
 const SpeedChart = dynamic(() => import('@/components/SpeedChart'), { ssr: false });
 const ThresholdEditor = dynamic(() => import('@/components/ThresholdEditor'), { ssr: false });
+const MarkerStyleEditor = dynamic(() => import('@/components/MarkerStyleEditor'), { ssr: false });
 
 /** TCP計測が全てN/Aか（UDP帯域テスト行は除外） */
 function isTcpNa(row: { download_mbps: number | null; upload_mbps: number | null; ping_ms: number | null; udp_download_mbps: number | null; udp_upload_mbps: number | null }): boolean {
@@ -82,6 +85,8 @@ export default function HomePage() {
     return DEFAULT_THRESHOLDS;
   });
   const [showThresholdEditor, setShowThresholdEditor] = useState(false);
+  const [markerStyles, setMarkerStyles] = useState<MarkerStyles>(() => ({ ...DEFAULT_MARKER_STYLES }));
+  const [showMarkerStyleEditor, setShowMarkerStyleEditor] = useState(false);
 
   const handleThresholdsChange = useCallback((t: CustomThresholds) => {
     setCustomThresholds(t);
@@ -394,6 +399,22 @@ export default function HomePage() {
               }}
             >
               &#9881; 閾値
+            </button>
+
+            {/* マーカースタイル設定ボタン */}
+            <button
+              onClick={() => setShowMarkerStyleEditor(true)}
+              title="マーカースタイル設定"
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid #ccc',
+                background: JSON.stringify(markerStyles) !== JSON.stringify(DEFAULT_MARKER_STYLES) ? '#e0f2fe' : '#fff',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              &#9679; マーカー
             </button>
 
             {/* 集約モード切替 */}
@@ -786,6 +807,7 @@ export default function HomePage() {
                 showMeasurementLayer={showMeasurementLayer}
                 referencePoints={referencePoints}
                 showReferenceLayer={showReferenceLayer}
+                markerStyles={markerStyles}
               />
               {/* フィルタ適用中バッジ */}
               {(filterEnabled || naFilter !== 'none') && (
@@ -927,6 +949,14 @@ export default function HomePage() {
           thresholds={customThresholds}
           onChange={handleThresholdsChange}
           onClose={() => setShowThresholdEditor(false)}
+        />
+      )}
+
+      {showMarkerStyleEditor && (
+        <MarkerStyleEditor
+          styles={markerStyles}
+          onChange={setMarkerStyles}
+          onClose={() => setShowMarkerStyleEditor(false)}
         />
       )}
 

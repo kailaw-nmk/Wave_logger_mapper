@@ -7,7 +7,9 @@ import type { AggregatedRow, CsvRow } from '@/lib/csvParser';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { getColor, METRIC_LABELS } from '@/lib/colorScale';
 import type { AnalysisCluster, FutsuCluster, TeisokuCluster, ReferencePoint } from '@/lib/analysisParser';
-import type { GroupMode, GroupStyle } from '@/lib/groupStyle';
+import type { MarkerStyles } from '@/lib/markerStyle';
+import { DEFAULT_MARKER_STYLES } from '@/lib/markerStyle';
+import type { GroupMode, GroupStyle, MarkerShape } from '@/lib/groupStyle';
 import { getGroupKey } from '@/lib/groupStyle';
 import { createShapeIcon } from '@/lib/svgMarkerIcon';
 import Legend from './Legend';
@@ -49,6 +51,8 @@ interface MapViewProps {
   referencePoints?: ReferencePoint[];
   /** 参考データレイヤー表示 */
   showReferenceLayer?: boolean;
+  /** マーカースタイル設定 */
+  markerStyles?: MarkerStyles;
 }
 
 /** データ変更時に地図をデータ範囲にフィットさせる */
@@ -287,15 +291,21 @@ function renderMarker(
   groupMode: GroupMode,
   groupStyles: Map<string, GroupStyle> | undefined,
   onPointClick?: (lng: number) => void,
+  styleDef?: { radius: number; fillOpacity: number; borderColor: string; borderWidth: number; shape: MarkerShape },
 ) {
   const popup = buildPopup(row);
+  const radius = styleDef?.radius ?? (prefix === 'na' ? 8 : 10);
+  const fillOpacity = styleDef?.fillOpacity ?? 0.7;
+  const strokeColor = (styleDef?.borderColor || fillColor);
+  const strokeWidth = styleDef?.borderWidth ?? 1;
+  const shape = styleDef?.shape ?? 'circle';
 
   // グループモード時: 形状アイコン付きMarker
   if (groupMode !== 'none' && groupStyles) {
     const gKey = getGroupKey(row, groupMode);
     const style = gKey ? groupStyles.get(gKey) : undefined;
     if (style) {
-      const icon = createShapeIcon(style.shape, fillColor, style.borderColor);
+      const icon = createShapeIcon(style.shape, fillColor, style.borderColor, radius * 2);
       return (
         <Marker
           key={`${prefix}-${i}-${fillColor}`}
@@ -309,13 +319,28 @@ function renderMarker(
     }
   }
 
+  // 形状がcircle以外の場合: SVGアイコン付きMarker
+  if (shape !== 'circle') {
+    const icon = createShapeIcon(shape, fillColor, strokeColor, radius * 2);
+    return (
+      <Marker
+        key={`${prefix}-${i}-${fillColor}`}
+        position={[row.latitude, row.longitude]}
+        icon={icon}
+        eventHandlers={{ click: () => { if (onPointClick) onPointClick(row.longitude); } }}
+      >
+        {popup}
+      </Marker>
+    );
+  }
+
   // 通常モード: CircleMarker
   return (
     <CircleMarker
       key={`${prefix}-${i}-${fillColor}`}
       center={[row.latitude, row.longitude]}
-      radius={prefix === 'na' ? 8 : 10}
-      pathOptions={{ color: fillColor, fillColor, fillOpacity: 0.7 }}
+      radius={radius}
+      pathOptions={{ color: strokeColor, fillColor, fillOpacity, weight: strokeWidth }}
       eventHandlers={{ click: () => { if (onPointClick) onPointClick(row.longitude); } }}
     >
       {popup}
@@ -411,7 +436,7 @@ function buildReferencePopup(point: ReferencePoint) {
   );
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // 不通区間ポリラインセグメント
@@ -534,18 +559,21 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         {showMeasurementLayer && !naOnly && data.map((row, i) => {
           const value = row[metric];
           if (value === null) return null;
-          const fillColor = getColor(value, metric, thresholds);
-          return renderMarker(row, i, 'pt', fillColor, groupMode, groupStyles, onPointClick);
+          const fillColor = markerStyles.measurement.color || getColor(value, metric, thresholds);
+          return renderMarker(row, i, 'pt', fillColor, groupMode, groupStyles, onPointClick, markerStyles.measurement);
         })}
 
         {/* 不通ポイント（グレーで重ねて表示） */}
-        {showMeasurementLayer && naPoints.map((row, i) => renderMarker(row, i, 'na', '#6b7280', groupMode, groupStyles, onPointClick))}
+        {showMeasurementLayer && naPoints.map((row, i) => renderMarker(row, i, 'na', markerStyles.na.color || '#6b7280', groupMode, groupStyles, onPointClick, markerStyles.na))}
 
         {/* 分析クラスタ（円＋中心マーカー） */}
         {showAnalysisLayer && analysisClusters.map((cluster, i) => {
-          const fillColor = getClusterFillColor(cluster, thresholds);
+          const styleKey = cluster.type === 'futsu' ? 'clusterFutsu' as const : 'clusterTeisoku' as const;
+          const ms = markerStyles[styleKey];
+          const defaultFill = getClusterFillColor(cluster, thresholds);
+          const fillColor = ms.color || defaultFill;
           // グループモード時はボーダー色をグループスタイルに合わせる
-          let borderColor = fillColor;
+          let borderColor = ms.borderColor || fillColor;
           if (groupMode !== 'none' && groupStyles) {
             const gKey = getClusterGroupKey(cluster, groupMode);
             const style = gKey ? groupStyles.get(gKey) : undefined;
@@ -560,18 +588,18 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
                   color: borderColor,
                   fillColor,
                   fillOpacity: 0.2,
-                  weight: 2,
+                  weight: ms.borderWidth,
                   opacity: 0.7,
                 }}
               />
               <CircleMarker
                 center={[cluster.lat_center, cluster.lon_center]}
-                radius={6}
+                radius={ms.radius}
                 pathOptions={{
                   color: borderColor,
                   fillColor,
-                  fillOpacity: 0.8,
-                  weight: 2,
+                  fillOpacity: ms.fillOpacity,
+                  weight: ms.borderWidth,
                 }}
               >
                 {buildClusterPopup(cluster)}
@@ -581,21 +609,34 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         })}
 
         {/* 参考データマーカー */}
-        {showReferenceLayer && referencePoints.map((point, i) => (
-          <CircleMarker
-            key={`ref-${i}`}
-            center={[point.lat, point.lon]}
-            radius={8}
-            pathOptions={{
-              color: '#0ea5e9',
-              fillColor: '#0ea5e9',
-              fillOpacity: 0.8,
-              weight: 2,
-            }}
-          >
-            {buildReferencePopup(point)}
-          </CircleMarker>
-        ))}
+        {showReferenceLayer && referencePoints.map((point, i) => {
+          const rs = markerStyles.reference;
+          const refColor = rs.color || '#0ea5e9';
+          const refBorder = rs.borderColor || refColor;
+          if (rs.shape !== 'circle') {
+            const icon = createShapeIcon(rs.shape, refColor, refBorder, rs.radius * 2);
+            return (
+              <Marker key={`ref-${i}`} position={[point.lat, point.lon]} icon={icon}>
+                {buildReferencePopup(point)}
+              </Marker>
+            );
+          }
+          return (
+            <CircleMarker
+              key={`ref-${i}`}
+              center={[point.lat, point.lon]}
+              radius={rs.radius}
+              pathOptions={{
+                color: refBorder,
+                fillColor: refColor,
+                fillOpacity: rs.fillOpacity,
+                weight: rs.borderWidth,
+              }}
+            >
+              {buildReferencePopup(point)}
+            </CircleMarker>
+          );
+        })}
       </MapContainer>
 
       <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} analysisClusterCount={showAnalysisLayer ? analysisClusters.length : 0} analysisFutsuCount={showAnalysisLayer ? analysisClusters.filter((c) => c.type === 'futsu').length : 0} referencePointCount={showReferenceLayer ? referencePoints.length : 0} />
