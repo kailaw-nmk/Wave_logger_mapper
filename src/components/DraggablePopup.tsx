@@ -81,9 +81,21 @@ export default function DraggablePopup({ maxWidth = 320, children }: DraggablePo
         map.dragging.disable();
 
         const popupEl = popup.getElement()!;
-        const rect = popupEl.getBoundingClientRect();
-        const ox = evt.clientX - rect.left;
-        const oy = evt.clientY - rect.top;
+        const cRect = map.getContainer().getBoundingClientRect();
+        const pRect = popupEl.getBoundingClientRect();
+
+        // 現在の画面位置をコンテナ相対の left/top に変換してからtransformを解除
+        const currentLeft = pRect.left - cRect.left;
+        const currentTop = pRect.top - cRect.top;
+        popupEl.style.transform = 'none';
+        popupEl.style.position = 'absolute';
+        popupEl.style.left = `${currentLeft}px`;
+        popupEl.style.top = `${currentTop}px`;
+        // Leafletが設定するbottomを無効化
+        popupEl.style.bottom = 'auto';
+
+        const ox = evt.clientX - pRect.left;
+        const oy = evt.clientY - pRect.top;
 
         if (tip) tip.style.display = 'none';
         line.style.display = '';
@@ -92,11 +104,9 @@ export default function DraggablePopup({ maxWidth = 320, children }: DraggablePo
         wrapper!.style.cursor = 'grabbing';
 
         function onMove(ev: MouseEvent) {
-          const cRect = map.getContainer().getBoundingClientRect();
-          popupEl.style.transform = 'none';
-          popupEl.style.position = 'absolute';
-          popupEl.style.left = `${ev.clientX - cRect.left - ox}px`;
-          popupEl.style.top = `${ev.clientY - cRect.top - oy}px`;
+          const cr = map.getContainer().getBoundingClientRect();
+          popupEl.style.left = `${ev.clientX - cr.left - ox}px`;
+          popupEl.style.top = `${ev.clientY - cr.top - oy}px`;
           updateLine();
         }
 
