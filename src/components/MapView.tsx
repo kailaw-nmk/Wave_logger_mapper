@@ -97,6 +97,18 @@ function BoundsWatcher({ onChange }: { onChange: (bounds: MapBounds) => void }) 
   return null;
 }
 
+/** セグメント分割閾値（km） — 連続する2点がこれ以上離れていたら別セグメントにする */
+const SEGMENT_THRESHOLD_KM = 1.0;
+
+/** 2点間の距離をHaversine公式で計算（km） */
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 /** ポリライングループ */
 interface PolylineGroup {
   coords: [number, number][];
@@ -112,19 +124,41 @@ interface NaPolylineSegment {
   vehicleId: string;
 }
 
-/** _sourceFile + vehicle_id + carrier でグループ化してポリライン用座標を生成する */
+/** _sourceFile + vehicle_id + carrier でグループ化し、距離ジャンプでセグメント分割する */
 function buildPolylineGroups(rawRows: CsvRow[]): PolylineGroup[] {
-  const groups = new Map<string, PolylineGroup>();
+  // まず同一キーでグループ化
+  const grouped = new Map<string, { rows: [number, number][]; sourceFile: string; vehicleId: string; carrier: string }>();
   for (const row of rawRows) {
     const key = `${row._sourceFile}::${row.vehicle_id}::${row.carrier ?? ''}`;
-    let group = groups.get(key);
+    let group = grouped.get(key);
     if (!group) {
-      group = { coords: [], sourceFile: row._sourceFile, vehicleId: row.vehicle_id, carrier: row.carrier ?? '' };
-      groups.set(key, group);
+      group = { rows: [], sourceFile: row._sourceFile, vehicleId: row.vehicle_id, carrier: row.carrier ?? '' };
+      grouped.set(key, group);
     }
-    group.coords.push([row.latitude, row.longitude]);
+    group.rows.push([row.latitude, row.longitude]);
   }
-  return Array.from(groups.values());
+
+  // グループ内を距離閾値でセグメント分割
+  const result: PolylineGroup[] = [];
+  for (const group of grouped.values()) {
+    let current: [number, number][] = [];
+    for (const coord of group.rows) {
+      if (current.length > 0) {
+        const prev = current[current.length - 1];
+        if (haversineKm(prev[0], prev[1], coord[0], coord[1]) > SEGMENT_THRESHOLD_KM) {
+          if (current.length >= 2) {
+            result.push({ coords: current, sourceFile: group.sourceFile, vehicleId: group.vehicleId, carrier: group.carrier });
+          }
+          current = [];
+        }
+      }
+      current.push(coord);
+    }
+    if (current.length >= 2) {
+      result.push({ coords: current, sourceFile: group.sourceFile, vehicleId: group.vehicleId, carrier: group.carrier });
+    }
+  }
+  return result;
 }
 
 /** 連続する不通ポイントをポリラインセグメントに変換する */
@@ -160,6 +194,16 @@ function buildNaPolylineSegments(rawRows: CsvRow[], naFilter: 'tcp' | 'udp' | 'b
 
     for (const row of rows) {
       if (isNa(row)) {
+        // 距離ジャンプがあればセグメントを分割
+        if (current.length > 0) {
+          const prev = current[current.length - 1];
+          if (haversineKm(prev[0], prev[1], row.latitude, row.longitude) > SEGMENT_THRESHOLD_KM) {
+            if (current.length >= 2) {
+              segments.push({ coords: current, sourceFile, vehicleId });
+            }
+            current = [];
+          }
+        }
         current.push([row.latitude, row.longitude]);
       } else {
         // 不通でない行が来たらセグメント確定（2点以上のみ）
