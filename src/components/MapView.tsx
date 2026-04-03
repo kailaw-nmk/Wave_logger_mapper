@@ -564,7 +564,11 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         })}
 
         {/* 不通ポイント（グレーで重ねて表示） */}
-        {showMeasurementLayer && naPoints.map((row, i) => renderMarker(row, i, 'na', markerStyles.na.color || '#6b7280', groupMode, groupStyles, onPointClick, markerStyles.na))}
+        {showMeasurementLayer && naPoints.map((row, i) => {
+          const naStyleKey = naFilter === 'tcp' ? 'naTcp' as const : naFilter === 'udp' ? 'naUdp' as const : 'naBoth' as const;
+          const naStyle = markerStyles[naStyleKey];
+          return renderMarker(row, i, 'na', naStyle.color || '#6b7280', groupMode, groupStyles, onPointClick, naStyle);
+        })}
 
         {/* 分析クラスタ（円＋中心マーカー） */}
         {showAnalysisLayer && analysisClusters.map((cluster, i) => {

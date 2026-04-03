@@ -13,7 +13,9 @@ export interface MarkerStyleDef {
 /** マーカー種別キー */
 export type MarkerTypeKey =
   | 'measurement'
-  | 'na'
+  | 'naTcp'
+  | 'naUdp'
+  | 'naBoth'
   | 'clusterFutsu'
   | 'clusterTeisoku'
   | 'reference';
@@ -21,9 +23,11 @@ export type MarkerTypeKey =
 /** マーカー種別のラベル */
 export const MARKER_TYPE_LABELS: Record<MarkerTypeKey, string> = {
   measurement: '計測ポイント',
-  na: '不通ポイント (N/A)',
-  clusterFutsu: '完全不通エリア',
-  clusterTeisoku: '低速不通エリア',
+  naTcp: 'TCP不通',
+  naUdp: 'UDP不通',
+  naBoth: '完全不通 (TCP+UDP)',
+  clusterFutsu: '完全不通エリア (分析)',
+  clusterTeisoku: '低速不通エリア (分析)',
   reference: '参考データ',
 };
 
@@ -40,7 +44,23 @@ export const DEFAULT_MARKER_STYLES: MarkerStyles = {
     borderWidth: 1,
     shape: 'circle',
   },
-  na: {
+  naTcp: {
+    radius: 8,
+    color: '#f97316',
+    fillOpacity: 0.7,
+    borderColor: '#f97316',
+    borderWidth: 1,
+    shape: 'circle',
+  },
+  naUdp: {
+    radius: 8,
+    color: '#8b5cf6',
+    fillOpacity: 0.7,
+    borderColor: '#8b5cf6',
+    borderWidth: 1,
+    shape: 'circle',
+  },
+  naBoth: {
     radius: 8,
     color: '#6b7280',
     fillOpacity: 0.7,
@@ -102,6 +122,13 @@ export function parseMarkerStyles(json: string): MarkerStyles {
 
   const obj = parsed as Record<string, unknown>;
   const result = { ...DEFAULT_MARKER_STYLES };
+
+  // 旧形式の 'na' キーを3種に展開（後方互換）
+  if (obj.na && typeof obj.na === 'object' && !obj.naTcp) {
+    obj.naTcp = obj.na;
+    obj.naUdp = obj.na;
+    obj.naBoth = obj.na;
+  }
 
   for (const key of Object.keys(DEFAULT_MARKER_STYLES) as MarkerTypeKey[]) {
     const entry = obj[key];
