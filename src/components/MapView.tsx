@@ -360,8 +360,11 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
   }, [analysisClusters, showAnalysisLayer]);
 
   // 表示対象ポイント（FitBounds・center計算用）
-  const measurementPoints = naOnly && naPoints.length > 0 ? naPoints : (showMeasurementLayer ? data : []);
-  const visiblePoints = [...measurementPoints, ...clusterAsPoints];
+  const visiblePoints = useMemo(() => {
+    const measurementPoints = naOnly && naPoints.length > 0 ? naPoints : (showMeasurementLayer ? data : []);
+    return [...measurementPoints, ...clusterAsPoints];
+  }, [data, naOnly, naPoints, showMeasurementLayer, clusterAsPoints]);
+
   if (visiblePoints.length === 0) return null;
 
   const centerLat = visiblePoints.reduce((sum, r) => sum + r.latitude, 0) / visiblePoints.length;
