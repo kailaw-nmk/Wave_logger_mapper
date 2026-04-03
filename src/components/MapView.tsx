@@ -112,11 +112,11 @@ interface NaPolylineSegment {
   vehicleId: string;
 }
 
-/** _sourceFile + vehicle_id でグループ化してポリライン用座標を生成する */
+/** _sourceFile + vehicle_id + carrier でグループ化してポリライン用座標を生成する */
 function buildPolylineGroups(rawRows: CsvRow[]): PolylineGroup[] {
   const groups = new Map<string, PolylineGroup>();
   for (const row of rawRows) {
-    const key = `${row._sourceFile}::${row.vehicle_id}`;
+    const key = `${row._sourceFile}::${row.vehicle_id}::${row.carrier ?? ''}`;
     let group = groups.get(key);
     if (!group) {
       group = { coords: [], sourceFile: row._sourceFile, vehicleId: row.vehicle_id, carrier: row.carrier ?? '' };
@@ -129,10 +129,10 @@ function buildPolylineGroups(rawRows: CsvRow[]): PolylineGroup[] {
 
 /** 連続する不通ポイントをポリラインセグメントに変換する */
 function buildNaPolylineSegments(rawRows: CsvRow[], naFilter: 'tcp' | 'udp' | 'both'): NaPolylineSegment[] {
-  // _sourceFile::vehicle_id でグループ化
+  // _sourceFile::vehicle_id::carrier でグループ化（異なるキャリアを分離）
   const groups = new Map<string, CsvRow[]>();
   for (const row of rawRows) {
-    const key = `${row._sourceFile}::${row.vehicle_id}`;
+    const key = `${row._sourceFile}::${row.vehicle_id}::${row.carrier ?? ''}`;
     let group = groups.get(key);
     if (!group) {
       group = [];
@@ -153,7 +153,9 @@ function buildNaPolylineSegments(rawRows: CsvRow[], naFilter: 'tcp' | 'udp' | 'b
   const segments: NaPolylineSegment[] = [];
 
   for (const [key, rows] of groups) {
-    const [sourceFile, vehicleId] = key.split('::');
+    const parts = key.split('::');
+    const sourceFile = parts[0];
+    const vehicleId = parts[1];
     let current: [number, number][] = [];
 
     for (const row of rows) {
