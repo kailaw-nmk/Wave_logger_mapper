@@ -845,7 +845,7 @@ export default function HomePage() {
                       color: '#991b1b',
                       boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
                     }}>
-                      不通区間表示中: {naFilter === 'tcp' ? 'TCP' : naFilter === 'udp' ? 'UDP' : '完全'}計測 N/A ({naPoints.length}件)
+                      不通区間表示中: {naFilter === 'tcp' ? 'TCP' : naFilter === 'udp' ? 'UDP' : '完全'}計測 N/A ({naPoints.length}件 / 全{filteredAggregated.length + naPoints.length}件)
                     </div>
                   )}
                 </div>
