@@ -2,7 +2,7 @@ import type { CsvRow } from '@/lib/csvParser';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { METRIC_LABELS, DEFAULT_THRESHOLDS } from '@/lib/colorScale';
 import type { GroupMode } from '@/lib/groupStyle';
-import type { AnalysisCluster } from '@/lib/analysisParser';
+import type { AnalysisCluster, ReferencePoint } from '@/lib/analysisParser';
 import type { MarkerStyles } from '@/lib/markerStyle';
 import { DEFAULT_MARKER_STYLES, parseMarkerStyles } from '@/lib/markerStyle';
 
@@ -22,8 +22,10 @@ export interface WlmProjectFile {
   binSize: number;
   mapHeightPercent: number;
   analysisClusters?: AnalysisCluster[];
+  referencePoints?: ReferencePoint[];
   showAnalysisLayer?: boolean;
   showMeasurementLayer?: boolean;
+  showReferenceLayer?: boolean;
   markerStyles?: MarkerStyles;
 }
 
@@ -41,8 +43,10 @@ export interface ProjectState {
   binSize: number;
   mapHeightPercent: number;
   analysisClusters?: AnalysisCluster[];
+  referencePoints?: ReferencePoint[];
   showAnalysisLayer?: boolean;
   showMeasurementLayer?: boolean;
+  showReferenceLayer?: boolean;
   markerStyles?: MarkerStyles;
 }
 
@@ -120,8 +124,10 @@ export function validateAndParseProject(json: string): WlmProjectFile {
     binSize: typeof obj.binSize === 'number' && obj.binSize >= 1 ? obj.binSize : 50,
     mapHeightPercent: typeof obj.mapHeightPercent === 'number' ? obj.mapHeightPercent : 55,
     analysisClusters: Array.isArray(obj.analysisClusters) ? obj.analysisClusters as AnalysisCluster[] : [],
+    referencePoints: Array.isArray(obj.referencePoints) ? obj.referencePoints as ReferencePoint[] : [],
     showAnalysisLayer: typeof obj.showAnalysisLayer === 'boolean' ? obj.showAnalysisLayer : true,
     showMeasurementLayer: typeof obj.showMeasurementLayer === 'boolean' ? obj.showMeasurementLayer : true,
+    showReferenceLayer: typeof obj.showReferenceLayer === 'boolean' ? obj.showReferenceLayer : true,
     markerStyles: parseMarkerStylesSafe(obj.markerStyles),
   };
 
