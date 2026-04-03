@@ -355,7 +355,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
       udp_download_mbps: null, udp_upload_mbps: null,
       connection_type: '', cellular_gen: null, carrier: null, signal_dbm: null, memo: '',
       _sourceFile: c._sourceFile,
-      count: 1, sourceFiles: [c._sourceFile], vehicle_ids: [], route_types: [],
+      count: 1, sourceFiles: [c._sourceFile], vehicle_ids: [], route_types: [], carriers: [c.carrier].filter(Boolean),
     }));
   }, [analysisClusters, showAnalysisLayer]);
 
