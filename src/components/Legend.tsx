@@ -16,6 +16,10 @@ interface LegendProps {
   naPointCount?: number;
   /** 不通区間ポリラインが存在するか */
   showNaPolyline?: boolean;
+  /** 分析クラスタ総数 */
+  analysisClusterCount?: number;
+  /** 完全不通エリアクラスタ数 */
+  analysisFutsuCount?: number;
 }
 
 /** 凡例用ミニSVG（16×16）をReact要素で描画 */
@@ -62,7 +66,7 @@ function MiniShapeSvg({ shape, borderColor }: { shape: MarkerShape; borderColor:
   );
 }
 
-export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false }: LegendProps) {
+export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false, analysisClusterCount = 0, analysisFutsuCount = 0 }: LegendProps) {
   const [collapsed, setCollapsed] = useState(false);
   const entries = getLegendEntries(metric, thresholds);
 
@@ -124,6 +128,20 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
               <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ display: 'inline-block', width: 16, height: 0, borderTop: '3px solid #ef4444', verticalAlign: 'middle' }} /> 不通区間
               </span>
+            )}
+            {analysisClusterCount > 0 && (
+              <>
+                {analysisFutsuCount > 0 && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ display: 'inline-block', width: 14, height: 14, borderRadius: '50%', border: '2px solid #ef4444', background: 'rgba(239,68,68,0.2)' }} /> 完全不通エリア ({analysisFutsuCount})
+                  </span>
+                )}
+                {analysisClusterCount - analysisFutsuCount > 0 && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ display: 'inline-block', width: 14, height: 14, borderRadius: '50%', border: '2px solid #f59e0b', background: 'rgba(245,158,11,0.2)' }} /> 低速不通エリア ({analysisClusterCount - analysisFutsuCount})
+                  </span>
+                )}
+              </>
             )}
           </div>
 

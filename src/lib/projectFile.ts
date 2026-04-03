@@ -2,6 +2,7 @@ import type { CsvRow } from '@/lib/csvParser';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { METRIC_LABELS, DEFAULT_THRESHOLDS } from '@/lib/colorScale';
 import type { GroupMode } from '@/lib/groupStyle';
+import type { AnalysisCluster } from '@/lib/analysisParser';
 
 /** プロジェクトファイルの型定義 */
 export interface WlmProjectFile {
@@ -18,6 +19,9 @@ export interface WlmProjectFile {
   showChart: boolean;
   binSize: number;
   mapHeightPercent: number;
+  analysisClusters?: AnalysisCluster[];
+  showAnalysisLayer?: boolean;
+  showMeasurementLayer?: boolean;
 }
 
 /** エクスポート用のstate */
@@ -33,6 +37,9 @@ export interface ProjectState {
   showChart: boolean;
   binSize: number;
   mapHeightPercent: number;
+  analysisClusters?: AnalysisCluster[];
+  showAnalysisLayer?: boolean;
+  showMeasurementLayer?: boolean;
 }
 
 /** stateからJSON文字列を生成する */
@@ -64,12 +71,17 @@ export function validateAndParseProject(json: string): WlmProjectFile {
     throw new Error(`未対応のバージョンです: ${String(obj.version)}（対応: 1）`);
   }
 
-  // rawRows バリデーション
-  if (!Array.isArray(obj.rawRows) || obj.rawRows.length === 0) {
+  // rawRows バリデーション（分析クラスタのみの場合は空でも許容）
+  const hasAnalysisClusters = Array.isArray(obj.analysisClusters) && (obj.analysisClusters as unknown[]).length > 0;
+  if (!Array.isArray(obj.rawRows)) {
+    obj.rawRows = [];
+  }
+  if ((obj.rawRows as unknown[]).length === 0 && !hasAnalysisClusters) {
     throw new Error('プロジェクトファイルにデータ行がありません。');
   }
-  for (let i = 0; i < Math.min(obj.rawRows.length, 5); i++) {
-    const row = obj.rawRows[i] as Record<string, unknown>;
+  const rawRowsArr = obj.rawRows as unknown[];
+  for (let i = 0; i < Math.min(rawRowsArr.length, 5); i++) {
+    const row = rawRowsArr[i] as Record<string, unknown>;
     if (typeof row.latitude !== 'number' || typeof row.longitude !== 'number' ||
         isNaN(row.latitude as number) || isNaN(row.longitude as number)) {
       throw new Error(`データ行 ${i + 1} に有効な緯度・経度がありません。`);
@@ -77,7 +89,10 @@ export function validateAndParseProject(json: string): WlmProjectFile {
   }
 
   // loadedFiles バリデーション
-  if (!Array.isArray(obj.loadedFiles) || obj.loadedFiles.length === 0) {
+  if (!Array.isArray(obj.loadedFiles)) {
+    obj.loadedFiles = [];
+  }
+  if ((obj.loadedFiles as unknown[]).length === 0 && !hasAnalysisClusters) {
     throw new Error('ファイル一覧がありません。');
   }
 
@@ -100,6 +115,9 @@ export function validateAndParseProject(json: string): WlmProjectFile {
     showChart: typeof obj.showChart === 'boolean' ? obj.showChart : false,
     binSize: typeof obj.binSize === 'number' && obj.binSize >= 1 ? obj.binSize : 50,
     mapHeightPercent: typeof obj.mapHeightPercent === 'number' ? obj.mapHeightPercent : 55,
+    analysisClusters: Array.isArray(obj.analysisClusters) ? obj.analysisClusters as AnalysisCluster[] : [],
+    showAnalysisLayer: typeof obj.showAnalysisLayer === 'boolean' ? obj.showAnalysisLayer : true,
+    showMeasurementLayer: typeof obj.showMeasurementLayer === 'boolean' ? obj.showMeasurementLayer : true,
   };
 
   return result;

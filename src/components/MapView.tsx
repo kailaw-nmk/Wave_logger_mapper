@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo, useCallback, useEffect } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, Popup, Rectangle, useMap, useMapEvents } from 'react-leaflet';
+import React, { useMemo, useCallback, useEffect } from 'react';
+import { MapContainer, TileLayer, CircleMarker, Circle, Marker, Polyline, Popup, Rectangle, useMap, useMapEvents } from 'react-leaflet';
 import type { LatLngBounds } from 'leaflet';
 import type { AggregatedRow, CsvRow } from '@/lib/csvParser';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { getColor, METRIC_LABELS } from '@/lib/colorScale';
+import type { AnalysisCluster, FutsuCluster, TeisokuCluster } from '@/lib/analysisParser';
 import type { GroupMode, GroupStyle } from '@/lib/groupStyle';
 import { getGroupKey } from '@/lib/groupStyle';
 import { createShapeIcon } from '@/lib/svgMarkerIcon';
@@ -38,6 +39,12 @@ interface MapViewProps {
   naFilter?: 'none' | 'tcp' | 'udp' | 'both';
   /** 不通ポイントのみ表示 */
   naOnly?: boolean;
+  /** 分析クラスタデータ */
+  analysisClusters?: AnalysisCluster[];
+  /** 分析レイヤー表示 */
+  showAnalysisLayer?: boolean;
+  /** 計測レイヤー表示 */
+  showMeasurementLayer?: boolean;
 }
 
 /** データ変更時に地図をデータ範囲にフィットさせる */
@@ -266,7 +273,59 @@ function renderMarker(
   );
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false }: MapViewProps) {
+/** 分析クラスタのポップアップ内容を生成 */
+function buildClusterPopup(cluster: AnalysisCluster) {
+  return (
+    <Popup maxWidth={320}>
+      <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+        <p style={{ margin: 0, fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>
+          {cluster.type === 'futsu' ? '完全不通エリア' : '低速不通エリア'}
+        </p>
+        <p style={{ margin: 0 }}><b>キャリア:</b> {cluster.carrier}</p>
+        <p style={{ margin: 0 }}><b>クラスタID:</b> {cluster.cluster_id}</p>
+        {cluster.type === 'futsu' && (
+          <p style={{ margin: 0 }}><b>計測点数:</b> {(cluster as FutsuCluster).point_count}</p>
+        )}
+        {cluster.type === 'teisoku' && (
+          <>
+            <p style={{ margin: 0 }}><b>計測種別:</b> {(cluster as TeisokuCluster).metric} ({(cluster as TeisokuCluster).threshold})</p>
+            <p style={{ margin: 0 }}><b>総計測点:</b> {(cluster as TeisokuCluster).total_points}</p>
+            <p style={{ margin: 0 }}><b>不通点数:</b> {(cluster as TeisokuCluster).futsu_count}</p>
+            <p style={{ margin: 0 }}><b>低速点数:</b> {(cluster as TeisokuCluster).teisoku_count}</p>
+            <p style={{ margin: '6px 0 0', fontWeight: 600, borderBottom: '1px solid #eee', paddingBottom: 4, marginBottom: 4 }}>速度情報</p>
+            <p style={{ margin: 0 }}><b>平均:</b> {(cluster as TeisokuCluster).avg_speed_mbps.toFixed(2)} Mbps</p>
+            <p style={{ margin: 0 }}><b>中央値:</b> {(cluster as TeisokuCluster).median_speed_mbps.toFixed(2)} Mbps</p>
+            <p style={{ margin: 0 }}><b>最小:</b> {(cluster as TeisokuCluster).min_speed_mbps.toFixed(2)} Mbps</p>
+          </>
+        )}
+        <p style={{ margin: 0 }}><b>半径:</b> {cluster.radius_m.toFixed(0)} m</p>
+        <p style={{ margin: 0 }}><b>日付:</b> {cluster.dates}</p>
+        <p style={{ margin: 0 }}><b>車両:</b> {cluster.vehicles}</p>
+        <a
+          href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${cluster.lat_center},${cluster.lon_center}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            marginTop: 8, padding: '6px 12px',
+            background: '#4285f4', color: '#fff', borderRadius: 6,
+            fontSize: 12, fontWeight: 600, textDecoration: 'none',
+          }}
+        >
+          ストリートビューを開く
+        </a>
+      </div>
+    </Popup>
+  );
+}
+
+/** 分析クラスタの円の色を取得 */
+function getClusterColor(cluster: AnalysisCluster, thresholds?: CustomThresholds): string {
+  if (cluster.type === 'futsu') return '#ef4444';
+  return getColor(cluster.avg_speed_mbps, 'download_mbps', thresholds);
+}
+
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // 不通区間ポリラインセグメント
@@ -285,8 +344,24 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
     return { min: minLat - padding, max: maxLat + padding };
   }, [data]);
 
+  // 分析クラスタを擬似的にAggregatedRow形式に変換（FitBounds用）
+  const clusterAsPoints = useMemo((): AggregatedRow[] => {
+    if (!showAnalysisLayer || analysisClusters.length === 0) return [];
+    return analysisClusters.map((c) => ({
+      timestamp: '', vehicle_id: '', route_type: '',
+      latitude: c.lat_center, longitude: c.lon_center,
+      accuracy: null, download_mbps: null, upload_mbps: null, ping_ms: null,
+      udp_ping_ms: null, udp_jitter_ms: null, udp_packet_loss_pct: null,
+      udp_download_mbps: null, udp_upload_mbps: null,
+      connection_type: '', cellular_gen: null, carrier: null, signal_dbm: null, memo: '',
+      _sourceFile: c._sourceFile,
+      count: 1, sourceFiles: [c._sourceFile], vehicle_ids: [], route_types: [],
+    }));
+  }, [analysisClusters, showAnalysisLayer]);
+
   // 表示対象ポイント（FitBounds・center計算用）
-  const visiblePoints = naOnly && naPoints.length > 0 ? naPoints : data;
+  const measurementPoints = naOnly && naPoints.length > 0 ? naPoints : (showMeasurementLayer ? data : []);
+  const visiblePoints = [...measurementPoints, ...clusterAsPoints];
   if (visiblePoints.length === 0) return null;
 
   const centerLat = visiblePoints.reduce((sum, r) => sum + r.latitude, 0) / visiblePoints.length;
@@ -307,7 +382,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         />
 
         {/* 軌跡の線（ファイル+車両ごと） */}
-        {polylineGroups.map((group, i) => {
+        {showMeasurementLayer && polylineGroups.map((group, i) => {
           if (group.coords.length <= 1) return null;
           // グループモード時はポリラインの色をグループ色にする
           let lineColor = '#6b7280';
@@ -331,7 +406,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         })}
 
         {/* 不通区間ポリライン（赤い実線） */}
-        {naPolylineSegments.map((seg, i) => (
+        {showMeasurementLayer && naPolylineSegments.map((seg, i) => (
           <Polyline
             key={`na-polyline-${i}`}
             positions={seg.coords}
@@ -357,8 +432,8 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           />
         )}
 
-        {/* 通常計測ポイント（naOnlyモード時は非表示） */}
-        {!naOnly && data.map((row, i) => {
+        {/* 通常計測ポイント（naOnlyモード時は非表示、レイヤー非表示時も隠す） */}
+        {showMeasurementLayer && !naOnly && data.map((row, i) => {
           const value = row[metric];
           if (value === null) return null;
           const fillColor = getColor(value, metric, thresholds);
@@ -366,10 +441,42 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         })}
 
         {/* 不通ポイント（グレーで重ねて表示） */}
-        {naPoints.map((row, i) => renderMarker(row, i, 'na', '#6b7280', groupMode, groupStyles, onPointClick))}
+        {showMeasurementLayer && naPoints.map((row, i) => renderMarker(row, i, 'na', '#6b7280', groupMode, groupStyles, onPointClick))}
+
+        {/* 分析クラスタ（円＋中心マーカー） */}
+        {showAnalysisLayer && analysisClusters.map((cluster, i) => {
+          const color = getClusterColor(cluster, thresholds);
+          return (
+            <React.Fragment key={`cluster-${i}`}>
+              <Circle
+                center={[cluster.lat_center, cluster.lon_center]}
+                radius={cluster.radius_m}
+                pathOptions={{
+                  color,
+                  fillColor: color,
+                  fillOpacity: 0.2,
+                  weight: 2,
+                  opacity: 0.7,
+                }}
+              />
+              <CircleMarker
+                center={[cluster.lat_center, cluster.lon_center]}
+                radius={6}
+                pathOptions={{
+                  color,
+                  fillColor: color,
+                  fillOpacity: 0.8,
+                  weight: 2,
+                }}
+              >
+                {buildClusterPopup(cluster)}
+              </CircleMarker>
+            </React.Fragment>
+          );
+        })}
       </MapContainer>
 
-      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} />
+      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} analysisClusterCount={showAnalysisLayer ? analysisClusters.length : 0} analysisFutsuCount={showAnalysisLayer ? analysisClusters.filter((c) => c.type === 'futsu').length : 0} />
     </div>
   );
 }

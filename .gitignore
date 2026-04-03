@@ -27,3 +27,4 @@ tools/*.html
 
 # ログデータ（個人データ）
 log_sample/
+sample/

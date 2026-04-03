@@ -5,6 +5,8 @@ import dynamic from 'next/dynamic';
 import CsvUploader from '@/components/CsvUploader';
 import type { CsvRow } from '@/lib/csvParser';
 import { parseCsv, aggregateByLocation, toAggregatedRows } from '@/lib/csvParser';
+import type { AnalysisCluster } from '@/lib/analysisParser';
+import { detectCsvType, parseFutsuCsv, parseTeisokuCsv } from '@/lib/analysisParser';
 import type { MapBounds } from '@/components/MapView';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { METRIC_LABELS, DEFAULT_THRESHOLDS, syncGroupThresholds } from '@/lib/colorScale';
@@ -59,6 +61,12 @@ function metricUnit(m: Metric): string {
 export default function HomePage() {
   const [rawRows, setRawRows] = useState<CsvRow[]>([]);
   const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
+
+  // 分析クラスタデータ
+  const [analysisClusters, setAnalysisClusters] = useState<AnalysisCluster[]>([]);
+  // レイヤー表示切替
+  const [showMeasurementLayer, setShowMeasurementLayer] = useState(true);
+  const [showAnalysisLayer, setShowAnalysisLayer] = useState(true);
   const [metric, setMetric] = useState<Metric>('download_mbps');
 
   // カラー閾値（読み込み時にグループ内を同期）
@@ -192,6 +200,7 @@ export default function HomePage() {
   const handleFilesLoaded = useCallback(
     (files: { text: string; fileName: string }[]) => {
       const newRows: CsvRow[] = [];
+      const newClusters: AnalysisCluster[] = [];
       const newFileNames: string[] = [];
 
       for (const { text, fileName } of files) {
@@ -200,17 +209,43 @@ export default function HomePage() {
           alert(`「${fileName}」は既に読み込まれています`);
           continue;
         }
-        const rows = parseCsv(text, fileName);
-        if (rows.length === 0) {
-          alert(`「${fileName}」に有効なデータがありません`);
-          continue;
+
+        const csvType = detectCsvType(text);
+
+        if (csvType === 'futsu') {
+          const clusters = parseFutsuCsv(text, fileName);
+          if (clusters.length === 0) {
+            alert(`「${fileName}」に有効なクラスタデータがありません`);
+            continue;
+          }
+          newClusters.push(...clusters);
+          newFileNames.push(fileName);
+        } else if (csvType === 'teisoku') {
+          const clusters = parseTeisokuCsv(text, fileName);
+          if (clusters.length === 0) {
+            alert(`「${fileName}」に有効なクラスタデータがありません`);
+            continue;
+          }
+          newClusters.push(...clusters);
+          newFileNames.push(fileName);
+        } else {
+          const rows = parseCsv(text, fileName);
+          if (rows.length === 0) {
+            alert(`「${fileName}」に有効なデータがありません`);
+            continue;
+          }
+          newRows.push(...rows);
+          newFileNames.push(fileName);
         }
-        newRows.push(...rows);
-        newFileNames.push(fileName);
       }
 
       if (newRows.length > 0) {
         setRawRows((prev) => [...prev, ...newRows]);
+      }
+      if (newClusters.length > 0) {
+        setAnalysisClusters((prev) => [...prev, ...newClusters]);
+      }
+      if (newFileNames.length > 0) {
         setLoadedFiles((prev) => [...prev, ...newFileNames]);
       }
     },
@@ -219,6 +254,7 @@ export default function HomePage() {
 
   function handleFileRemove(fileName: string) {
     setRawRows((prev) => prev.filter((r) => r._sourceFile !== fileName));
+    setAnalysisClusters((prev) => prev.filter((c) => c._sourceFile !== fileName));
     setLoadedFiles((prev) => prev.filter((f) => f !== fileName));
   }
 
@@ -227,8 +263,9 @@ export default function HomePage() {
       rawRows, loadedFiles, metric, customThresholds,
       filterEnabled, filterMax, naFilter, groupMode,
       showChart, binSize, mapHeightPercent,
+      analysisClusters, showAnalysisLayer, showMeasurementLayer,
     });
-  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent]);
+  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, showAnalysisLayer, showMeasurementLayer]);
 
   const handleImport = useCallback((file: File) => {
     const reader = new FileReader();
@@ -248,6 +285,9 @@ export default function HomePage() {
         setShowChart(project.showChart);
         setBinSize(project.binSize);
         setMapHeightPercent(project.mapHeightPercent);
+        setAnalysisClusters(project.analysisClusters ?? []);
+        setShowAnalysisLayer(project.showAnalysisLayer ?? true);
+        setShowMeasurementLayer(project.showMeasurementLayer ?? true);
       } catch (err) {
         alert(err instanceof Error ? err.message : 'プロジェクトファイルの読み込みに失敗しました。');
       }
@@ -255,7 +295,7 @@ export default function HomePage() {
     reader.readAsText(file);
   }, [rawRows.length]);
 
-  const hasData = data.length > 0;
+  const hasData = data.length > 0 || analysisClusters.length > 0;
   const unit = metricUnit(metric);
   const filterStep = isPingMetric(metric) ? 10 : 5;
 
@@ -456,6 +496,38 @@ export default function HomePage() {
               {showChart ? '\u25B2 グラフ非表示' : '\u25BC グラフ表示'}
             </button>
 
+            {/* レイヤー切替 */}
+            {(rawRows.length > 0 || analysisClusters.length > 0) && (
+              <div style={{ display: 'flex', gap: 4, fontSize: 13 }}>
+                {rawRows.length > 0 && (
+                  <button
+                    onClick={() => setShowMeasurementLayer((v) => !v)}
+                    style={{
+                      padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                      border: showMeasurementLayer ? '2px solid #3b82f6' : '1px solid #ccc',
+                      background: showMeasurementLayer ? '#eff6ff' : '#fff',
+                      fontWeight: showMeasurementLayer ? 600 : 400,
+                    }}
+                  >
+                    {showMeasurementLayer ? '■' : '□'} 計測ログ
+                  </button>
+                )}
+                {analysisClusters.length > 0 && (
+                  <button
+                    onClick={() => setShowAnalysisLayer((v) => !v)}
+                    style={{
+                      padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                      border: showAnalysisLayer ? '2px solid #f59e0b' : '1px solid #ccc',
+                      background: showAnalysisLayer ? '#fffbeb' : '#fff',
+                      fontWeight: showAnalysisLayer ? 600 : 400,
+                    }}
+                  >
+                    {showAnalysisLayer ? '■' : '□'} 分析エリア ({analysisClusters.length})
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* プロジェクト保存/読込 */}
             <button
               onClick={handleExport}
@@ -491,14 +563,16 @@ export default function HomePage() {
             {/* ファイル一覧 */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               {loadedFiles.map((f) => {
-                const count = rawRows.filter((r) => r._sourceFile === f).length;
+                const measureCount = rawRows.filter((r) => r._sourceFile === f).length;
+                const clusterCount = analysisClusters.filter((c) => c._sourceFile === f).length;
+                const label = clusterCount > 0 ? `${clusterCount}クラスタ` : `${measureCount}件`;
                 return (
                   <span
                     key={f}
                     style={{
                       fontSize: 12,
                       color: '#555',
-                      background: '#f0f0f0',
+                      background: clusterCount > 0 ? '#fef3c7' : '#f0f0f0',
                       padding: '2px 8px',
                       borderRadius: 4,
                       display: 'inline-flex',
@@ -506,7 +580,7 @@ export default function HomePage() {
                       gap: 4,
                     }}
                   >
-                    {f} ({count}件)
+                    {f} ({label})
                     <button
                       onClick={() => handleFileRemove(f)}
                       style={{
@@ -548,7 +622,7 @@ export default function HomePage() {
                 color: '#999',
                 textAlign: 'center',
               }}>
-                Radio Wave Logger で出力した netlog_*.csv ファイルをアップロードしてください（複数可）
+                Radio Wave Logger の netlog_*.csv または分析CSV（不通エリア・低速エリア）をアップロードしてください（複数可）
               </p>
               <p style={{
                 marginTop: 8,
@@ -593,6 +667,9 @@ export default function HomePage() {
                 naPoints={naPoints}
                 naFilter={naFilter}
                 naOnly={naOnly}
+                analysisClusters={analysisClusters}
+                showAnalysisLayer={showAnalysisLayer}
+                showMeasurementLayer={showMeasurementLayer}
               />
               {/* フィルタ適用中バッジ */}
               {(filterEnabled || naFilter !== 'none') && (
