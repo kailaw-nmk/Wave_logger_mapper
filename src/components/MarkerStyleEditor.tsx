@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import type { MarkerStyles, MarkerTypeKey } from '@/lib/markerStyle';
+import type { MarkerStyles, MarkerTypeKey, MarkerStyleDef } from '@/lib/markerStyle';
 import { MARKER_TYPE_LABELS, DEFAULT_MARKER_STYLES, downloadMarkerStyles, parseMarkerStyles } from '@/lib/markerStyle';
 import type { MarkerShape } from '@/lib/groupStyle';
 
@@ -15,20 +15,47 @@ const SHAPES: { value: MarkerShape; label: string }[] = [
   { value: 'star', label: '★' },
 ];
 
+/** 編集中のタブ種別: マーカー種別 or キャリア名 */
+type ActiveTab = { kind: 'type'; key: MarkerTypeKey } | { kind: 'carrier'; name: string };
+
 interface MarkerStyleEditorProps {
   styles: MarkerStyles;
   onChange: (styles: MarkerStyles) => void;
   onClose: () => void;
+  /** データに含まれるキャリア一覧 */
+  availableCarriers?: string[];
 }
 
-export default function MarkerStyleEditor({ styles, onChange, onClose }: MarkerStyleEditorProps) {
-  const [activeType, setActiveType] = useState<MarkerTypeKey>('measurement');
+export default function MarkerStyleEditor({ styles, onChange, onClose, availableCarriers = [] }: MarkerStyleEditorProps) {
+  const [activeTab, setActiveTab] = useState<ActiveTab>({ kind: 'type', key: 'measurement' });
   const importRef = useRef<HTMLInputElement>(null);
-  const s = styles[activeType];
-  const isDynamic = activeType === 'measurement' || activeType === 'clusterTeisoku';
 
-  function update(patch: Partial<typeof s>) {
-    onChange({ ...styles, [activeType]: { ...s, ...patch } });
+  // 現在のスタイル取得
+  const s: MarkerStyleDef = activeTab.kind === 'type'
+    ? styles[activeTab.key]
+    : (styles.carrierOverrides?.[activeTab.name] ?? styles.measurement);
+  const isDynamic = activeTab.kind === 'type' && (activeTab.key === 'measurement' || activeTab.key === 'clusterTeisoku');
+  const isCarrier = activeTab.kind === 'carrier';
+
+  function update(patch: Partial<MarkerStyleDef>) {
+    if (activeTab.kind === 'type') {
+      onChange({ ...styles, [activeTab.key]: { ...s, ...patch } });
+    } else {
+      const overrides = { ...(styles.carrierOverrides ?? {}) };
+      overrides[activeTab.name] = { ...s, ...patch };
+      onChange({ ...styles, carrierOverrides: overrides });
+    }
+  }
+
+  function resetCurrent() {
+    if (activeTab.kind === 'type') {
+      onChange({ ...styles, [activeTab.key]: { ...DEFAULT_MARKER_STYLES[activeTab.key] } });
+    } else {
+      // キャリアオーバーライドを削除
+      const overrides = { ...(styles.carrierOverrides ?? {}) };
+      delete overrides[activeTab.name];
+      onChange({ ...styles, carrierOverrides: Object.keys(overrides).length > 0 ? overrides : undefined });
+    }
   }
 
   function handleImport(file: File) {
@@ -71,15 +98,16 @@ export default function MarkerStyleEditor({ styles, onChange, onClose }: MarkerS
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 16 }}>
           {MARKER_TYPES.map((key) => {
             const isModified = JSON.stringify(styles[key]) !== JSON.stringify(DEFAULT_MARKER_STYLES[key]);
+            const isActive = activeTab.kind === 'type' && activeTab.key === key;
             return (
               <button
                 key={key}
-                onClick={() => setActiveType(key)}
+                onClick={() => setActiveTab({ kind: 'type', key })}
                 style={{
                   padding: '4px 8px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
-                  border: key === activeType ? '2px solid #3b82f6' : '1px solid #ccc',
-                  background: key === activeType ? '#eff6ff' : '#fff',
-                  fontWeight: key === activeType ? 600 : 400,
+                  border: isActive ? '2px solid #3b82f6' : '1px solid #ccc',
+                  background: isActive ? '#eff6ff' : '#fff',
+                  fontWeight: isActive ? 600 : 400,
                   position: 'relative',
                 }}
               >
@@ -93,7 +121,53 @@ export default function MarkerStyleEditor({ styles, onChange, onClose }: MarkerS
               </button>
             );
           })}
+          {/* キャリア別タブ */}
+          {availableCarriers.length >= 2 && (
+            <>
+              <span style={{ fontSize: 10, color: '#999', alignSelf: 'center' }}>|</span>
+              {availableCarriers.map((carrier) => {
+                const hasOverride = !!styles.carrierOverrides?.[carrier];
+                const isActive = activeTab.kind === 'carrier' && activeTab.name === carrier;
+                return (
+                  <button
+                    key={`carrier-${carrier}`}
+                    onClick={() => {
+                      // 初回クリック時にオーバーライドが無ければベースをコピーして作成
+                      if (!styles.carrierOverrides?.[carrier]) {
+                        const overrides = { ...(styles.carrierOverrides ?? {}) };
+                        overrides[carrier] = { ...styles.measurement };
+                        onChange({ ...styles, carrierOverrides: overrides });
+                      }
+                      setActiveTab({ kind: 'carrier', name: carrier });
+                    }}
+                    style={{
+                      padding: '4px 8px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
+                      border: isActive ? '2px solid #10b981' : '1px solid #ccc',
+                      background: isActive ? '#ecfdf5' : '#fff',
+                      fontWeight: isActive ? 600 : 400,
+                      position: 'relative',
+                    }}
+                  >
+                    {carrier}
+                    {hasOverride && (
+                      <span style={{
+                        position: 'absolute', top: -2, right: -2,
+                        width: 6, height: 6, borderRadius: '50%', background: '#10b981',
+                      }} />
+                    )}
+                  </button>
+                );
+              })}
+            </>
+          )}
         </div>
+
+        {/* キャリア別タブの説明 */}
+        {isCarrier && (
+          <div style={{ fontSize: 11, color: '#666', marginBottom: 8, background: '#f0fdf4', padding: '4px 8px', borderRadius: 4 }}>
+            「{activeTab.kind === 'carrier' ? activeTab.name : ''}」キャリアの計測ポイントに適用されるスタイル
+          </div>
+        )}
 
         {/* 設定項目 */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
@@ -210,11 +284,11 @@ export default function MarkerStyleEditor({ styles, onChange, onClose }: MarkerS
 
         {/* ボタン */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <button onClick={() => onChange({ ...styles, [activeType]: { ...DEFAULT_MARKER_STYLES[activeType] } })} style={{
+          <button onClick={resetCurrent} style={{
             padding: '6px 12px', borderRadius: 6, border: '1px solid #ccc',
             background: '#fff', fontSize: 12, cursor: 'pointer',
           }}>
-            リセット
+            {isCarrier ? 'オーバーライド削除' : 'リセット'}
           </button>
           <button onClick={() => onChange({ ...DEFAULT_MARKER_STYLES })} style={{
             padding: '6px 12px', borderRadius: 6, border: '1px solid #ccc',

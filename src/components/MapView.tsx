@@ -8,7 +8,7 @@ import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { getColor, METRIC_LABELS } from '@/lib/colorScale';
 import type { AnalysisCluster, FutsuCluster, TeisokuCluster, ReferencePoint } from '@/lib/analysisParser';
 import type { MarkerStyles } from '@/lib/markerStyle';
-import { DEFAULT_MARKER_STYLES } from '@/lib/markerStyle';
+import { DEFAULT_MARKER_STYLES, resolveCarrierStyle } from '@/lib/markerStyle';
 import type { GroupMode, GroupStyle, MarkerShape } from '@/lib/groupStyle';
 import { getGroupKey } from '@/lib/groupStyle';
 import { createShapeIcon } from '@/lib/svgMarkerIcon';
@@ -559,8 +559,9 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         {showMeasurementLayer && !naOnly && data.map((row, i) => {
           const value = row[metric];
           if (value === null) return null;
-          const fillColor = markerStyles.measurement.color || getColor(value, metric, thresholds);
-          return renderMarker(row, i, 'pt', fillColor, groupMode, groupStyles, onPointClick, markerStyles.measurement);
+          const ms = resolveCarrierStyle(markerStyles, 'measurement', row.carrier);
+          const fillColor = ms.color || getColor(value, metric, thresholds);
+          return renderMarker(row, i, 'pt', fillColor, groupMode, groupStyles, onPointClick, ms);
         })}
 
         {/* 不通ポイント（グレーで重ねて表示） */}

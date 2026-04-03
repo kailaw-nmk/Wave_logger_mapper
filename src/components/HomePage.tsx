@@ -959,6 +959,7 @@ export default function HomePage() {
           styles={markerStyles}
           onChange={setMarkerStyles}
           onClose={() => setShowMarkerStyleEditor(false)}
+          availableCarriers={availableCarriers}
         />
       )}
 

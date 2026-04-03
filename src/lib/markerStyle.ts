@@ -32,7 +32,22 @@ export const MARKER_TYPE_LABELS: Record<MarkerTypeKey, string> = {
 };
 
 /** 全マーカースタイル設定 */
-export type MarkerStyles = Record<MarkerTypeKey, MarkerStyleDef>;
+export interface MarkerStyles extends Record<MarkerTypeKey, MarkerStyleDef> {
+  /** キャリア別オーバーライド（キャリア名 → スタイル） */
+  carrierOverrides?: Record<string, MarkerStyleDef>;
+}
+
+/** キャリア用のスタイルを解決する（オーバーライドがあればそちら、なければベースを返す） */
+export function resolveCarrierStyle(
+  styles: MarkerStyles,
+  baseKey: MarkerTypeKey,
+  carrier: string | null,
+): MarkerStyleDef {
+  if (carrier && styles.carrierOverrides?.[carrier]) {
+    return styles.carrierOverrides[carrier];
+  }
+  return styles[baseKey];
+}
 
 /** デフォルトスタイル */
 export const DEFAULT_MARKER_STYLES: MarkerStyles = {
@@ -133,20 +148,39 @@ export function parseMarkerStyles(json: string): MarkerStyles {
   for (const key of Object.keys(DEFAULT_MARKER_STYLES) as MarkerTypeKey[]) {
     const entry = obj[key];
     if (typeof entry !== 'object' || entry === null) continue;
-    const e = entry as Record<string, unknown>;
-    result[key] = {
-      radius: typeof e.radius === 'number' ? e.radius : DEFAULT_MARKER_STYLES[key].radius,
-      color: typeof e.color === 'string' ? e.color : DEFAULT_MARKER_STYLES[key].color,
-      fillOpacity: typeof e.fillOpacity === 'number' ? e.fillOpacity : DEFAULT_MARKER_STYLES[key].fillOpacity,
-      borderColor: typeof e.borderColor === 'string' ? e.borderColor : DEFAULT_MARKER_STYLES[key].borderColor,
-      borderWidth: typeof e.borderWidth === 'number' ? e.borderWidth : DEFAULT_MARKER_STYLES[key].borderWidth,
-      shape: isValidShape(e.shape) ? e.shape : DEFAULT_MARKER_STYLES[key].shape,
-    };
+    result[key] = parseStyleDef(entry as Record<string, unknown>, DEFAULT_MARKER_STYLES[key]);
   }
+
+  // キャリア別オーバーライド
+  if (typeof obj.carrierOverrides === 'object' && obj.carrierOverrides !== null) {
+    const co = obj.carrierOverrides as Record<string, unknown>;
+    const overrides: Record<string, MarkerStyleDef> = {};
+    for (const [carrier, val] of Object.entries(co)) {
+      if (typeof val === 'object' && val !== null) {
+        overrides[carrier] = parseStyleDef(val as Record<string, unknown>, DEFAULT_MARKER_STYLES.measurement);
+      }
+    }
+    if (Object.keys(overrides).length > 0) {
+      result.carrierOverrides = overrides;
+    }
+  }
+
   return result;
 }
 
 const VALID_SHAPES: MarkerShape[] = ['circle', 'triangle', 'square', 'diamond', 'pentagon', 'star'];
 function isValidShape(v: unknown): v is MarkerShape {
   return typeof v === 'string' && VALID_SHAPES.includes(v as MarkerShape);
+}
+
+/** Record からスタイル定義を安全にパースする */
+function parseStyleDef(e: Record<string, unknown>, fallback: MarkerStyleDef): MarkerStyleDef {
+  return {
+    radius: typeof e.radius === 'number' ? e.radius : fallback.radius,
+    color: typeof e.color === 'string' ? e.color : fallback.color,
+    fillOpacity: typeof e.fillOpacity === 'number' ? e.fillOpacity : fallback.fillOpacity,
+    borderColor: typeof e.borderColor === 'string' ? e.borderColor : fallback.borderColor,
+    borderWidth: typeof e.borderWidth === 'number' ? e.borderWidth : fallback.borderWidth,
+    shape: isValidShape(e.shape) ? e.shape : fallback.shape,
+  };
 }
