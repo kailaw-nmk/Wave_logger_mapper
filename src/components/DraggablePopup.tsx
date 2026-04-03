@@ -98,8 +98,7 @@ export default function DraggablePopup({ maxWidth = 320, children }: DraggablePo
           const dx = ev.clientX - startX;
           const dy = ev.clientY - startY;
           dragOffsetRef.current = { x: startOffset.x + dx, y: startOffset.y + dy };
-          el!.style.marginLeft = `${dragOffsetRef.current.x}px`;
-          el!.style.marginTop = `${dragOffsetRef.current.y}px`;
+          el!.style.translate = `${dragOffsetRef.current.x}px ${dragOffsetRef.current.y}px`;
           updateLine();
         }
 
