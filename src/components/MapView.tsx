@@ -319,10 +319,18 @@ function buildClusterPopup(cluster: AnalysisCluster) {
   );
 }
 
-/** 分析クラスタの円の色を取得 */
-function getClusterColor(cluster: AnalysisCluster, thresholds?: CustomThresholds): string {
+/** 分析クラスタの塗り色を取得 */
+function getClusterFillColor(cluster: AnalysisCluster, thresholds?: CustomThresholds): string {
   if (cluster.type === 'futsu') return '#ef4444';
   return getColor(cluster.avg_speed_mbps, 'download_mbps', thresholds);
+}
+
+/** 分析クラスタのグループキーを取得 */
+function getClusterGroupKey(cluster: AnalysisCluster, mode: GroupMode): string | null {
+  if (mode === 'vehicle') return cluster.vehicles || null;
+  if (mode === 'file') return cluster._sourceFile || null;
+  if (mode === 'carrier') return cluster.carrier || null;
+  return null;
 }
 
 export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true }: MapViewProps) {
@@ -448,15 +456,22 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
 
         {/* 分析クラスタ（円＋中心マーカー） */}
         {showAnalysisLayer && analysisClusters.map((cluster, i) => {
-          const color = getClusterColor(cluster, thresholds);
+          const fillColor = getClusterFillColor(cluster, thresholds);
+          // グループモード時はボーダー色をグループスタイルに合わせる
+          let borderColor = fillColor;
+          if (groupMode !== 'none' && groupStyles) {
+            const gKey = getClusterGroupKey(cluster, groupMode);
+            const style = gKey ? groupStyles.get(gKey) : undefined;
+            if (style) borderColor = style.borderColor;
+          }
           return (
             <React.Fragment key={`cluster-${i}`}>
               <Circle
                 center={[cluster.lat_center, cluster.lon_center]}
                 radius={cluster.radius_m}
                 pathOptions={{
-                  color,
-                  fillColor: color,
+                  color: borderColor,
+                  fillColor,
                   fillOpacity: 0.2,
                   weight: 2,
                   opacity: 0.7,
@@ -466,8 +481,8 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
                 center={[cluster.lat_center, cluster.lon_center]}
                 radius={6}
                 pathOptions={{
-                  color,
-                  fillColor: color,
+                  color: borderColor,
+                  fillColor,
                   fillOpacity: 0.8,
                   weight: 2,
                 }}

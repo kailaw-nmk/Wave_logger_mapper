@@ -139,7 +139,7 @@ export default function HomePage() {
 
   const data = useMemo(() => aggregate ? aggregateByLocation(rawRows) : toAggregatedRows(rawRows), [rawRows, aggregate]);
 
-  // グループスタイルを計算
+  // グループスタイルを計算（分析クラスタのキーも含める）
   const groupStyles = useMemo(() => {
     if (groupMode === 'none') return new Map();
     const keys = new Set<string>();
@@ -149,8 +149,14 @@ export default function HomePage() {
         : row._sourceFile;
       if (key) keys.add(key);
     }
+    for (const cluster of analysisClusters) {
+      const key = groupMode === 'vehicle' ? cluster.vehicles
+        : groupMode === 'carrier' ? cluster.carrier
+        : cluster._sourceFile;
+      if (key) keys.add(key);
+    }
     return assignGroupStyles(Array.from(keys));
-  }, [rawRows, groupMode]);
+  }, [rawRows, analysisClusters, groupMode]);
 
   // フィルタ後の集約データ（マップ用 — 通常ポイント）
   const filteredAggregated = useMemo(() => {
