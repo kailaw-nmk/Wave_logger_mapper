@@ -3,6 +3,8 @@ import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { METRIC_LABELS, DEFAULT_THRESHOLDS } from '@/lib/colorScale';
 import type { GroupMode } from '@/lib/groupStyle';
 import type { AnalysisCluster } from '@/lib/analysisParser';
+import type { MarkerStyles } from '@/lib/markerStyle';
+import { DEFAULT_MARKER_STYLES, parseMarkerStyles } from '@/lib/markerStyle';
 
 /** プロジェクトファイルの型定義 */
 export interface WlmProjectFile {
@@ -22,6 +24,7 @@ export interface WlmProjectFile {
   analysisClusters?: AnalysisCluster[];
   showAnalysisLayer?: boolean;
   showMeasurementLayer?: boolean;
+  markerStyles?: MarkerStyles;
 }
 
 /** エクスポート用のstate */
@@ -40,6 +43,7 @@ export interface ProjectState {
   analysisClusters?: AnalysisCluster[];
   showAnalysisLayer?: boolean;
   showMeasurementLayer?: boolean;
+  markerStyles?: MarkerStyles;
 }
 
 /** stateからJSON文字列を生成する */
@@ -118,6 +122,7 @@ export function validateAndParseProject(json: string): WlmProjectFile {
     analysisClusters: Array.isArray(obj.analysisClusters) ? obj.analysisClusters as AnalysisCluster[] : [],
     showAnalysisLayer: typeof obj.showAnalysisLayer === 'boolean' ? obj.showAnalysisLayer : true,
     showMeasurementLayer: typeof obj.showMeasurementLayer === 'boolean' ? obj.showMeasurementLayer : true,
+    markerStyles: parseMarkerStylesSafe(obj.markerStyles),
   };
 
   return result;
@@ -148,7 +153,17 @@ function isValidNaFilter(v: unknown): v is 'none' | 'tcp' | 'udp' | 'both' {
 }
 
 function isValidGroupMode(v: unknown): v is GroupMode {
-  return v === 'none' || v === 'vehicle' || v === 'file';
+  return v === 'none' || v === 'vehicle' || v === 'file' || v === 'carrier';
+}
+
+/** マーカースタイルを安全にパースする（無効なら デフォルトを返す） */
+function parseMarkerStylesSafe(v: unknown): MarkerStyles {
+  if (typeof v !== 'object' || v === null) return { ...DEFAULT_MARKER_STYLES };
+  try {
+    return parseMarkerStyles(JSON.stringify(v));
+  } catch {
+    return { ...DEFAULT_MARKER_STYLES };
+  }
 }
 
 function isValidThresholds(v: unknown): boolean {

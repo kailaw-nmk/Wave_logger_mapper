@@ -317,8 +317,9 @@ export default function HomePage() {
       filterEnabled, filterMax, naFilter, groupMode,
       showChart, binSize, mapHeightPercent,
       analysisClusters, showAnalysisLayer, showMeasurementLayer,
+      markerStyles,
     });
-  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, showAnalysisLayer, showMeasurementLayer]);
+  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, showAnalysisLayer, showMeasurementLayer, markerStyles]);
 
   const handleImport = useCallback((file: File) => {
     const reader = new FileReader();
@@ -341,6 +342,7 @@ export default function HomePage() {
         setAnalysisClusters(project.analysisClusters ?? []);
         setShowAnalysisLayer(project.showAnalysisLayer ?? true);
         setShowMeasurementLayer(project.showMeasurementLayer ?? true);
+        if (project.markerStyles) setMarkerStyles(project.markerStyles);
       } catch (err) {
         alert(err instanceof Error ? err.message : 'プロジェクトファイルの読み込みに失敗しました。');
       }
