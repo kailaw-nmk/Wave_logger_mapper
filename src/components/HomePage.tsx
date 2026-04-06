@@ -148,6 +148,8 @@ export default function HomePage() {
   const [showNaRecurrence, setShowNaRecurrence] = useState(false);
   // マルチキャリア比較表示
   const [showMultiCarrier, setShowMultiCarrier] = useState(false);
+  // マルチキャリア: 全社不通のみ表示
+  const [multiCarrierAllNaOnly, setMultiCarrierAllNaOnly] = useState(false);
   // 再現率クラスタリング半径(m)
   const [recurrenceRadius, setRecurrenceRadius] = useState(50);
   // 再現率フィルタ閾値(%)
@@ -694,17 +696,29 @@ export default function HomePage() {
                     </>
                   )}
                   {availableCarriers.length >= 2 && (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
-                      <input
-                        type="checkbox"
-                        checked={showMultiCarrier}
-                        onChange={(e) => {
-                          setShowMultiCarrier(e.target.checked);
-                          if (e.target.checked) setShowNaRecurrence(false);
-                        }}
-                      />
-                      マルチ比較
-                    </label>
+                    <>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
+                        <input
+                          type="checkbox"
+                          checked={showMultiCarrier}
+                          onChange={(e) => {
+                            setShowMultiCarrier(e.target.checked);
+                            if (e.target.checked) setShowNaRecurrence(false);
+                          }}
+                        />
+                        マルチ比較
+                      </label>
+                      {showMultiCarrier && (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
+                          <input
+                            type="checkbox"
+                            checked={multiCarrierAllNaOnly}
+                            onChange={(e) => setMultiCarrierAllNaOnly(e.target.checked)}
+                          />
+                          全社不通のみ
+                        </label>
+                      )}
+                    </>
                   )}
                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
                     <input
@@ -1009,7 +1023,7 @@ export default function HomePage() {
                 showConsecutiveNa={showConsecutiveNa}
                 naRecurrencePoints={naRecurrencePoints}
                 showNaRecurrence={showNaRecurrence}
-                multiCarrierPoints={multiCarrierPoints}
+                multiCarrierPoints={multiCarrierAllNaOnly ? multiCarrierPoints.filter((p) => p.allNa) : multiCarrierPoints}
                 multiCarrierSummary={multiCarrierSummary}
                 showMultiCarrier={showMultiCarrier}
                 analysisClusters={carrierFilteredClusters}
