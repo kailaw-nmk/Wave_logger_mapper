@@ -42,6 +42,12 @@ interface MapViewProps {
   naFilter?: 'none' | 'tcp' | 'udp' | 'both';
   /** 不通ポイントのみ表示 */
   naOnly?: boolean;
+  /** 単点不通ポイント */
+  isolatedNaPoints?: AggregatedRow[];
+  /** 連続不通ポイント */
+  consecutiveNaPoints?: AggregatedRow[];
+  /** 連続不通の表示状態 */
+  showConsecutiveNa?: boolean;
   /** 分析クラスタデータ */
   analysisClusters?: AnalysisCluster[];
   /** 分析レイヤー表示 */
@@ -437,14 +443,14 @@ function buildReferencePopup(point: ReferencePoint) {
   );
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
-  // 不通区間ポリラインセグメント
+  // 不通区間ポリラインセグメント（連続不通非表示時は生成しない）
   const naPolylineSegments = useMemo(() => {
-    if (naFilter === 'none') return [];
+    if (naFilter === 'none' || !showConsecutiveNa) return [];
     return buildNaPolylineSegments(rawRows, naFilter);
-  }, [rawRows, naFilter]);
+  }, [rawRows, naFilter, showConsecutiveNa]);
 
   // ハイライト矩形の緯度範囲を計算（データ全体の緯度範囲 + 余白）
   const latBounds = useMemo(() => {
@@ -565,11 +571,19 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           return renderMarker(row, i, 'pt', fillColor, groupMode, groupStyles, onPointClick, ms);
         })}
 
-        {/* 不通ポイント（グレーで重ねて表示） */}
-        {showMeasurementLayer && naPoints.map((row, i) => {
+        {/* 連続不通ポイント（従来のスタイル） */}
+        {showMeasurementLayer && consecutiveNaPoints.map((row, i) => {
           const naStyleKey = naFilter === 'tcp' ? 'naTcp' as const : naFilter === 'udp' ? 'naUdp' as const : 'naBoth' as const;
           const naStyle = markerStyles[naStyleKey];
-          return renderMarker(row, i, 'na', naStyle.color || '#6b7280', groupMode, groupStyles, onPointClick, naStyle);
+          return renderMarker(row, i, 'na-cons', naStyle.color || '#6b7280', groupMode, groupStyles, onPointClick, naStyle);
+        })}
+
+        {/* 単点不通ポイント（ダイヤモンド形、小さめ） */}
+        {showMeasurementLayer && isolatedNaPoints.map((row, i) => {
+          const naStyleKey = naFilter === 'tcp' ? 'naTcp' as const : naFilter === 'udp' ? 'naUdp' as const : 'naBoth' as const;
+          const baseStyle = markerStyles[naStyleKey];
+          const isolatedStyle = { ...baseStyle, radius: Math.max(5, baseStyle.radius - 2), shape: 'diamond' as MarkerShape };
+          return renderMarker(row, i, 'na-iso', baseStyle.color || '#6b7280', groupMode, groupStyles, onPointClick, isolatedStyle);
         })}
 
         {/* 分析クラスタ（円＋中心マーカー） */}
@@ -645,7 +659,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         })}
       </MapContainer>
 
-      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} analysisClusterCount={showAnalysisLayer ? analysisClusters.length : 0} analysisFutsuCount={showAnalysisLayer ? analysisClusters.filter((c) => c.type === 'futsu').length : 0} referencePointCount={showReferenceLayer ? referencePoints.length : 0} />
+      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} naIsolatedCount={isolatedNaPoints.length} naConsecutiveCount={consecutiveNaPoints.length} analysisClusterCount={showAnalysisLayer ? analysisClusters.length : 0} analysisFutsuCount={showAnalysisLayer ? analysisClusters.filter((c) => c.type === 'futsu').length : 0} referencePointCount={showReferenceLayer ? referencePoints.length : 0} />
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import CsvUploader from '@/components/CsvUploader';
-import type { CsvRow } from '@/lib/csvParser';
+import type { CsvRow, AggregatedRow } from '@/lib/csvParser';
 import { parseCsv, aggregateByLocation, toAggregatedRows } from '@/lib/csvParser';
 import type { AnalysisCluster, ReferencePoint } from '@/lib/analysisParser';
 import { detectCsvType, parseFutsuCsv, parseTeisokuCsv, parseReferenceCsv } from '@/lib/analysisParser';
@@ -42,6 +42,43 @@ function isUdpNa(row: { udp_download_mbps: number | null; udp_upload_mbps: numbe
 /** 完全不通: TCP+UDP両方の計測が全てN/A */
 function isBothNa(row: { download_mbps: number | null; upload_mbps: number | null; ping_ms: number | null; udp_download_mbps: number | null; udp_upload_mbps: number | null; udp_ping_ms: number | null; udp_jitter_ms: number | null; udp_packet_loss_pct: number | null }): boolean {
   return isTcpNa(row) && isUdpNa(row);
+}
+
+/** NA行を単点不通と連続不通に分類する（ルートグループ内の順序に基づく） */
+function classifyNaRows(
+  allRows: CsvRow[],
+  naCheckFn: (row: CsvRow) => boolean,
+): { isolated: CsvRow[]; consecutive: CsvRow[] } {
+  // _sourceFile::vehicle_id::carrier でグループ化
+  const groups = new Map<string, CsvRow[]>();
+  for (const row of allRows) {
+    const key = `${row._sourceFile}::${row.vehicle_id}::${row.carrier ?? ''}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = [];
+      groups.set(key, group);
+    }
+    group.push(row);
+  }
+
+  const isolated: CsvRow[] = [];
+  const consecutive: CsvRow[] = [];
+
+  for (const rows of groups.values()) {
+    const naFlags = rows.map(naCheckFn);
+    for (let i = 0; i < rows.length; i++) {
+      if (!naFlags[i]) continue;
+      const prevNa = i > 0 && naFlags[i - 1];
+      const nextNa = i < rows.length - 1 && naFlags[i + 1];
+      if (prevNa || nextNa) {
+        consecutive.push(rows[i]);
+      } else {
+        isolated.push(rows[i]);
+      }
+    }
+  }
+
+  return { isolated, consecutive };
 }
 
 /** メトリックがping系かどうか */
@@ -103,6 +140,9 @@ export default function HomePage() {
   const [naFilter, setNaFilter] = useState<'none' | 'tcp' | 'udp' | 'both'>('none');
   // 不通ポイントのみ表示モード
   const [naOnly, setNaOnly] = useState(false);
+  // 単点不通 / 連続不通の表示切替
+  const [showIsolatedNa, setShowIsolatedNa] = useState(true);
+  const [showConsecutiveNa, setShowConsecutiveNa] = useState(true);
   // 集約モード: true=近傍点を集約, false=全測定点を個別表示
   const [aggregate, setAggregate] = useState(true);
   // キャリアフィルタ: 選択中のキャリア（空=全表示）
@@ -205,13 +245,24 @@ export default function HomePage() {
     return result;
   }, [data, filterEnabled, filterMax, metric]);
 
-  // 不通ポイント（N/Aフィルタ有効時のみ — キャリアフィルタ適用済みデータから判定）
-  const naPoints = useMemo(() => {
-    if (naFilter === 'none') return [];
+  // 不通ポイントを単点/連続に分類（N/Aフィルタ有効時のみ）
+  const { isolatedNaPoints, consecutiveNaPoints } = useMemo(() => {
+    if (naFilter === 'none') return { isolatedNaPoints: [] as AggregatedRow[], consecutiveNaPoints: [] as AggregatedRow[] };
     const fn = naFilter === 'tcp' ? isTcpNa : naFilter === 'udp' ? isUdpNa : isBothNa;
-    const naRaw = carrierFilteredRows.filter(fn);
-    return aggregate ? aggregateByLocation(naRaw) : toAggregatedRows(naRaw);
+    const { isolated, consecutive } = classifyNaRows(carrierFilteredRows, fn);
+    return {
+      isolatedNaPoints: aggregate ? aggregateByLocation(isolated) : toAggregatedRows(isolated),
+      consecutiveNaPoints: aggregate ? aggregateByLocation(consecutive) : toAggregatedRows(consecutive),
+    };
   }, [carrierFilteredRows, naFilter, aggregate]);
+
+  // 表示用に結合（フィルタ状態に応じて）
+  const naPoints = useMemo(() => {
+    const result: AggregatedRow[] = [];
+    if (showIsolatedNa) result.push(...isolatedNaPoints);
+    if (showConsecutiveNa) result.push(...consecutiveNaPoints);
+    return result;
+  }, [isolatedNaPoints, consecutiveNaPoints, showIsolatedNa, showConsecutiveNa]);
 
   // フィルタ後の生データ（チャート用）
   const filteredRaw = useMemo(() => {
@@ -319,8 +370,9 @@ export default function HomePage() {
       analysisClusters, referencePoints,
       showAnalysisLayer, showMeasurementLayer, showReferenceLayer,
       markerStyles,
+      showIsolatedNa, showConsecutiveNa,
     });
-  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, referencePoints, showAnalysisLayer, showMeasurementLayer, showReferenceLayer, markerStyles]);
+  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, referencePoints, showAnalysisLayer, showMeasurementLayer, showReferenceLayer, markerStyles, showIsolatedNa, showConsecutiveNa]);
 
   const handleImport = useCallback((file: File) => {
     const reader = new FileReader();
@@ -346,6 +398,8 @@ export default function HomePage() {
         setShowMeasurementLayer(project.showMeasurementLayer ?? true);
         setShowReferenceLayer(project.showReferenceLayer ?? true);
         if (project.markerStyles) setMarkerStyles(project.markerStyles);
+        setShowIsolatedNa(project.showIsolatedNa ?? true);
+        setShowConsecutiveNa(project.showConsecutiveNa ?? true);
       } catch (err) {
         alert(err instanceof Error ? err.message : 'プロジェクトファイルの読み込みに失敗しました。');
       }
@@ -527,14 +581,32 @@ export default function HomePage() {
                 完全不通
               </button>
               {naFilter !== 'none' && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={naOnly}
-                    onChange={(e) => setNaOnly(e.target.checked)}
-                  />
-                  不通のみ
-                </label>
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={showIsolatedNa}
+                      onChange={(e) => setShowIsolatedNa(e.target.checked)}
+                    />
+                    単点不通
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={showConsecutiveNa}
+                      onChange={(e) => setShowConsecutiveNa(e.target.checked)}
+                    />
+                    連続不通
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={naOnly}
+                      onChange={(e) => setNaOnly(e.target.checked)}
+                    />
+                    不通のみ
+                  </label>
+                </>
               )}
             </div>
 
@@ -807,6 +879,9 @@ export default function HomePage() {
                 naPoints={naPoints}
                 naFilter={naFilter}
                 naOnly={naOnly}
+                isolatedNaPoints={showIsolatedNa ? isolatedNaPoints : []}
+                consecutiveNaPoints={showConsecutiveNa ? consecutiveNaPoints : []}
+                showConsecutiveNa={showConsecutiveNa}
                 analysisClusters={carrierFilteredClusters}
                 showAnalysisLayer={showAnalysisLayer}
                 showMeasurementLayer={showMeasurementLayer}
@@ -848,7 +923,7 @@ export default function HomePage() {
                       color: '#991b1b',
                       boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
                     }}>
-                      不通区間表示中: {naFilter === 'tcp' ? 'TCP' : naFilter === 'udp' ? 'UDP' : '完全'}計測 N/A ({naPoints.length}件 / 全{filteredAggregated.length + naPoints.length}件)
+                      不通区間表示中: {naFilter === 'tcp' ? 'TCP' : naFilter === 'udp' ? 'UDP' : '完全'}計測 N/A ({naPoints.length}件{showIsolatedNa && isolatedNaPoints.length > 0 ? ` 単点${isolatedNaPoints.length}` : ''}{showConsecutiveNa && consecutiveNaPoints.length > 0 ? ` 連続${consecutiveNaPoints.length}` : ''} / 全{filteredAggregated.length + naPoints.length}件)
                     </div>
                   )}
                 </div>

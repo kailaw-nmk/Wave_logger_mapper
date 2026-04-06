@@ -16,6 +16,10 @@ interface LegendProps {
   naPointCount?: number;
   /** 不通区間ポリラインが存在するか */
   showNaPolyline?: boolean;
+  /** 単点不通ポイント数 */
+  naIsolatedCount?: number;
+  /** 連続不通ポイント数 */
+  naConsecutiveCount?: number;
   /** 分析クラスタ総数 */
   analysisClusterCount?: number;
   /** 完全不通エリアクラスタ数 */
@@ -68,7 +72,7 @@ function MiniShapeSvg({ shape, borderColor }: { shape: MarkerShape; borderColor:
   );
 }
 
-export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false, analysisClusterCount = 0, analysisFutsuCount = 0, referencePointCount = 0 }: LegendProps) {
+export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false, naIsolatedCount = 0, naConsecutiveCount = 0, analysisClusterCount = 0, analysisFutsuCount = 0, referencePointCount = 0 }: LegendProps) {
   const [collapsed, setCollapsed] = useState(false);
   const entries = getLegendEntries(metric, thresholds);
 
@@ -121,9 +125,17 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
                 <span style={{ color: entry.color }}>●</span> {entry.label}
               </span>
             ))}
-            {naPointCount > 0 && (
+            {naIsolatedCount > 0 && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <svg width={14} height={14} viewBox="0 0 14 14" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                  <polygon points="7,1 13,7 7,13 1,7" fill="#6b7280" fillOpacity={0.7} stroke="#6b7280" strokeWidth={1} />
+                </svg>
+                単点不通 ({naIsolatedCount}件)
+              </span>
+            )}
+            {naConsecutiveCount > 0 && (
               <span>
-                <span style={{ color: '#6b7280' }}>●</span> 不通 N/A ({naPointCount}件)
+                <span style={{ color: '#6b7280' }}>●</span> 連続不通 ({naConsecutiveCount}件)
               </span>
             )}
             {showNaPolyline && (

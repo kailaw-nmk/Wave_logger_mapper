@@ -27,6 +27,10 @@ export interface WlmProjectFile {
   showMeasurementLayer?: boolean;
   showReferenceLayer?: boolean;
   markerStyles?: MarkerStyles;
+  /** 単点不通の表示 */
+  showIsolatedNa?: boolean;
+  /** 連続不通の表示 */
+  showConsecutiveNa?: boolean;
 }
 
 /** エクスポート用のstate */
@@ -48,6 +52,8 @@ export interface ProjectState {
   showMeasurementLayer?: boolean;
   showReferenceLayer?: boolean;
   markerStyles?: MarkerStyles;
+  showIsolatedNa?: boolean;
+  showConsecutiveNa?: boolean;
 }
 
 /** stateからJSON文字列を生成する */
@@ -129,6 +135,8 @@ export function validateAndParseProject(json: string): WlmProjectFile {
     showMeasurementLayer: typeof obj.showMeasurementLayer === 'boolean' ? obj.showMeasurementLayer : true,
     showReferenceLayer: typeof obj.showReferenceLayer === 'boolean' ? obj.showReferenceLayer : true,
     markerStyles: parseMarkerStylesSafe(obj.markerStyles),
+    showIsolatedNa: typeof obj.showIsolatedNa === 'boolean' ? obj.showIsolatedNa : true,
+    showConsecutiveNa: typeof obj.showConsecutiveNa === 'boolean' ? obj.showConsecutiveNa : true,
   };
 
   return result;
