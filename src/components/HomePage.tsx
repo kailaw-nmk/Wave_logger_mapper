@@ -150,6 +150,8 @@ export default function HomePage() {
   const [showMultiCarrier, setShowMultiCarrier] = useState(false);
   // マルチキャリア: 全社不通のみ表示
   const [multiCarrierAllNaOnly, setMultiCarrierAllNaOnly] = useState(false);
+  // マルチキャリア比較半径(m)
+  const [multiCarrierRadius, setMultiCarrierRadius] = useState(50);
   // 再現率クラスタリング半径(m)
   const [recurrenceRadius, setRecurrenceRadius] = useState(50);
   // 再現率フィルタ閾値(%)
@@ -297,9 +299,9 @@ export default function HomePage() {
       return { multiCarrierPoints: [], multiCarrierSummary: null };
     }
     const fn = naFilter === 'tcp' ? isTcpNa : naFilter === 'udp' ? isUdpNa : isBothNa;
-    const { points, summary } = computeMultiCarrierCoverage(rawRows, fn, availableCarriers);
+    const { points, summary } = computeMultiCarrierCoverage(rawRows, fn, availableCarriers, multiCarrierRadius);
     return { multiCarrierPoints: points, multiCarrierSummary: summary };
-  }, [rawRows, naFilter, showMultiCarrier, availableCarriers]);
+  }, [rawRows, naFilter, showMultiCarrier, availableCarriers, multiCarrierRadius]);
 
   // フィルタ後の生データ（チャート用）
   const filteredRaw = useMemo(() => {
@@ -407,9 +409,9 @@ export default function HomePage() {
       analysisClusters, referencePoints,
       showAnalysisLayer, showMeasurementLayer, showReferenceLayer,
       markerStyles,
-      showIsolatedNa, showConsecutiveNa, showNaRecurrence, showMultiCarrier, recurrenceRadius,
+      showIsolatedNa, showConsecutiveNa, showNaRecurrence, showMultiCarrier, recurrenceRadius, multiCarrierRadius,
     });
-  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, referencePoints, showAnalysisLayer, showMeasurementLayer, showReferenceLayer, markerStyles, showIsolatedNa, showConsecutiveNa, showNaRecurrence, showMultiCarrier, recurrenceRadius]);
+  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, referencePoints, showAnalysisLayer, showMeasurementLayer, showReferenceLayer, markerStyles, showIsolatedNa, showConsecutiveNa, showNaRecurrence, showMultiCarrier, recurrenceRadius, multiCarrierRadius]);
 
   const handleImport = useCallback((file: File) => {
     const reader = new FileReader();
@@ -440,6 +442,7 @@ export default function HomePage() {
         setShowNaRecurrence(project.showNaRecurrence ?? false);
         setShowMultiCarrier(project.showMultiCarrier ?? false);
         setRecurrenceRadius(project.recurrenceRadius ?? 50);
+        setMultiCarrierRadius(project.multiCarrierRadius ?? 50);
       } catch (err) {
         alert(err instanceof Error ? err.message : 'プロジェクトファイルの読み込みに失敗しました。');
       }
@@ -709,14 +712,34 @@ export default function HomePage() {
                         マルチ比較
                       </label>
                       {showMultiCarrier && (
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
-                          <input
-                            type="checkbox"
-                            checked={multiCarrierAllNaOnly}
-                            onChange={(e) => setMultiCarrierAllNaOnly(e.target.checked)}
-                          />
-                          全社不通のみ
-                        </label>
+                        <>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, color: '#666' }}>
+                            半径:
+                            <input
+                              type="number"
+                              value={multiCarrierRadius}
+                              onChange={(e) => setMultiCarrierRadius(Math.max(0, Number(e.target.value)))}
+                              min={0}
+                              step={10}
+                              style={{
+                                width: 52,
+                                padding: '2px 4px',
+                                borderRadius: 4,
+                                border: '1px solid #ccc',
+                                fontSize: 12,
+                              }}
+                            />
+                            m
+                          </label>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
+                            <input
+                              type="checkbox"
+                              checked={multiCarrierAllNaOnly}
+                              onChange={(e) => setMultiCarrierAllNaOnly(e.target.checked)}
+                            />
+                            全社不通のみ
+                          </label>
+                        </>
                       )}
                     </>
                   )}

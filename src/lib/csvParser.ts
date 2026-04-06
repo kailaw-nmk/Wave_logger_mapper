@@ -309,14 +309,16 @@ function computeRecurrenceForRows(
 export interface MultiCarrierPoint {
   latitude: number;
   longitude: number;
-  /** 各キャリアの不通有無 */
+  /** 各キャリアの不通有無（データありのキャリアのみ） */
   carrierStatus: { carrier: string; hasNa: boolean; naRuns: number; totalRuns: number }[];
-  /** 全キャリアが不通（マルチでも解消不可） */
+  /** データありの全キャリアが不通（マルチでも解消不可） */
   allNa: boolean;
   /** 不通のキャリア数 */
   naCarrierCount: number;
-  /** 全キャリア数 */
+  /** データありのキャリア数 */
   totalCarriers: number;
+  /** 表示用の半径(m) — 0の場合はポイント表示 */
+  radius: number;
 }
 
 /** マルチキャリアサマリ統計 */
@@ -331,87 +333,129 @@ export interface MultiCarrierSummary {
   reductionRate: number;
 }
 
-/** 地点ごとのマルチキャリアカバレッジを算出する */
+/** キャリア別のNA地点情報 */
+interface CarrierNaLocation {
+  lat: number;
+  lng: number;
+  carrier: string;
+  naRuns: number;
+  totalRuns: number;
+}
+
+/** 地点ごとのマルチキャリアカバレッジを算出する（半径ベース空間マッチング対応） */
 export function computeMultiCarrierCoverage(
   rows: CsvRow[],
   naCheckFn: (row: CsvRow) => boolean,
   carriers: string[],
+  radiusM: number = 0,
 ): { points: MultiCarrierPoint[]; summary: MultiCarrierSummary } {
-  // 地点キー → { キャリア → { 運行ファイル → その運行の行リスト } }
-  const locationGroups = new Map<string, {
-    lat: number;
-    lng: number;
-    carrierRuns: Map<string, Map<string, CsvRow[]>>;
-  }>();
+  // キャリアごとにNA地点を算出
+  const carrierNaLocations = new Map<string, CarrierNaLocation[]>();
+  // キャリアごとの全地点数（サマリ用）
+  const carrierAllLocations = new Map<string, number>();
 
-  for (const row of rows) {
-    if (!row.carrier || !carriers.includes(row.carrier)) continue;
-    const locKey = `${row.latitude.toFixed(5)},${row.longitude.toFixed(5)}`;
-    let loc = locationGroups.get(locKey);
-    if (!loc) {
-      loc = { lat: row.latitude, lng: row.longitude, carrierRuns: new Map() };
-      locationGroups.set(locKey, loc);
+  for (const carrier of carriers) {
+    const carrierRows = rows.filter((r) => r.carrier === carrier);
+    // 5桁グループ化
+    const locGroups = new Map<string, { lat: number; lng: number; runs: Map<string, CsvRow[]> }>();
+    for (const row of carrierRows) {
+      const key = `${row.latitude.toFixed(5)},${row.longitude.toFixed(5)}`;
+      let loc = locGroups.get(key);
+      if (!loc) {
+        loc = { lat: row.latitude, lng: row.longitude, runs: new Map() };
+        locGroups.set(key, loc);
+      }
+      let runRows = loc.runs.get(row._sourceFile);
+      if (!runRows) {
+        runRows = [];
+        loc.runs.set(row._sourceFile, runRows);
+      }
+      runRows.push(row);
     }
-    let carrierMap = loc.carrierRuns.get(row.carrier);
-    if (!carrierMap) {
-      carrierMap = new Map();
-      loc.carrierRuns.set(row.carrier, carrierMap);
+
+    carrierAllLocations.set(carrier, locGroups.size);
+
+    const naLocs: CarrierNaLocation[] = [];
+    for (const loc of locGroups.values()) {
+      let naRuns = 0;
+      const totalRuns = loc.runs.size;
+      for (const runRows of loc.runs.values()) {
+        if (runRows.every(naCheckFn)) naRuns++;
+      }
+      if (naRuns > 0) {
+        naLocs.push({ lat: loc.lat, lng: loc.lng, carrier, naRuns, totalRuns });
+      }
     }
-    const file = row._sourceFile;
-    let runRows = carrierMap.get(file);
-    if (!runRows) {
-      runRows = [];
-      carrierMap.set(file, runRows);
-    }
-    runRows.push(row);
+    carrierNaLocations.set(carrier, naLocs);
   }
 
+  // 各NA地点について、近傍に他キャリアのNA地点があるかチェック
+  const matchRadius = radiusM > 0 ? radiusM * 2 : 1; // 両方の円が重なる距離 = 2R、radius=0時は1mの微小距離
   const points: MultiCarrierPoint[] = [];
-  // キャリア別の不通地点数カウント用
   const perCarrierNaCounts = new Map<string, number>();
   for (const c of carriers) perCarrierNaCounts.set(c, 0);
   let combinedNaCount = 0;
 
-  for (const loc of locationGroups.values()) {
-    const carrierStatus: MultiCarrierPoint['carrierStatus'] = [];
-    let naCarrierCount = 0;
+  // 全キャリアのNA地点を走査（重複排除のためキーで管理）
+  const processedKeys = new Set<string>();
 
-    for (const carrier of carriers) {
-      const runMap = loc.carrierRuns.get(carrier);
-      if (!runMap || runMap.size === 0) {
-        // このキャリアはこの地点を通過していない → 不通扱い（データなし）
-        carrierStatus.push({ carrier, hasNa: true, naRuns: 0, totalRuns: 0 });
-        naCarrierCount++;
-        perCarrierNaCounts.set(carrier, (perCarrierNaCounts.get(carrier) ?? 0) + 1);
-        continue;
+  for (const carrier of carriers) {
+    const naLocs = carrierNaLocations.get(carrier) ?? [];
+    perCarrierNaCounts.set(carrier, naLocs.length);
+
+    for (const naLoc of naLocs) {
+      const locKey = `${naLoc.lat.toFixed(5)},${naLoc.lng.toFixed(5)},${carrier}`;
+      if (processedKeys.has(locKey)) continue;
+      processedKeys.add(locKey);
+
+      // この地点の近傍にある他キャリアのNA状況を調べる
+      const carrierStatus: MultiCarrierPoint['carrierStatus'] = [];
+      carrierStatus.push({ carrier, hasNa: true, naRuns: naLoc.naRuns, totalRuns: naLoc.totalRuns });
+      let naCarrierCount = 1; // 自分自身がNA
+      let dataCarrierCount = 1;
+
+      for (const otherCarrier of carriers) {
+        if (otherCarrier === carrier) continue;
+        const otherNaLocs = carrierNaLocations.get(otherCarrier) ?? [];
+        // 近傍にNA地点があるかチェック
+        const nearby = otherNaLocs.find((o) =>
+          haversineM(naLoc.lat, naLoc.lng, o.lat, o.lng) <= matchRadius
+        );
+        if (nearby) {
+          carrierStatus.push({ carrier: otherCarrier, hasNa: true, naRuns: nearby.naRuns, totalRuns: nearby.totalRuns });
+          naCarrierCount++;
+          dataCarrierCount++;
+        } else {
+          // 近傍にNA地点はない → そもそもデータがあるか確認
+          const otherAllLocs = rows.some((r) =>
+            r.carrier === otherCarrier &&
+            haversineM(naLoc.lat, naLoc.lng, r.latitude, r.longitude) <= matchRadius
+          );
+          if (otherAllLocs) {
+            // データはあるが正常 → マルチで解消可能
+            carrierStatus.push({ carrier: otherCarrier, hasNa: false, naRuns: 0, totalRuns: 0 });
+            dataCarrierCount++;
+          }
+          // データなし → 判定対象外（carrierStatusに含めない）
+        }
       }
-      let naRuns = 0;
-      const totalRuns = runMap.size;
-      for (const runRows of runMap.values()) {
-        if (runRows.every(naCheckFn)) naRuns++;
-      }
-      const hasNa = naRuns > 0;
-      carrierStatus.push({ carrier, hasNa, naRuns, totalRuns });
-      if (hasNa) {
-        naCarrierCount++;
-        perCarrierNaCounts.set(carrier, (perCarrierNaCounts.get(carrier) ?? 0) + 1);
-      }
+
+      // データありキャリアが2つ以上ない場合はスキップ（比較不可）
+      if (dataCarrierCount < 2) continue;
+
+      const allNa = naCarrierCount === dataCarrierCount;
+      if (allNa) combinedNaCount++;
+
+      points.push({
+        latitude: naLoc.lat,
+        longitude: naLoc.lng,
+        carrierStatus,
+        allNa,
+        naCarrierCount,
+        totalCarriers: dataCarrierCount,
+        radius: radiusM,
+      });
     }
-
-    // 全キャリア正常の地点は除外
-    if (naCarrierCount === 0) continue;
-
-    const allNa = naCarrierCount === carriers.length;
-    if (allNa) combinedNaCount++;
-
-    points.push({
-      latitude: loc.lat,
-      longitude: loc.lng,
-      carrierStatus,
-      allNa,
-      naCarrierCount,
-      totalCarriers: carriers.length,
-    });
   }
 
   const perCarrier = carriers.map((c) => ({

@@ -701,6 +701,23 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         {/* マルチキャリア比較マーカー */}
         {showMeasurementLayer && showMultiCarrier && multiCarrierPoints.map((pt, i) => {
           const color = getMultiCarrierColor(pt);
+          if (pt.radius > 0) {
+            return (
+              <Circle
+                key={`mc-${i}`}
+                center={[pt.latitude, pt.longitude]}
+                radius={pt.radius}
+                pathOptions={{
+                  color,
+                  fillColor: color,
+                  fillOpacity: 0.3,
+                  weight: 2,
+                }}
+              >
+                {buildMultiCarrierPopup(pt)}
+              </Circle>
+            );
+          }
           return (
             <CircleMarker
               key={`mc-${i}`}

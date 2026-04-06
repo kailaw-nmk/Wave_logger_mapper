@@ -37,6 +37,8 @@ export interface WlmProjectFile {
   showMultiCarrier?: boolean;
   /** 再現率クラスタリング半径(m) */
   recurrenceRadius?: number;
+  /** マルチキャリア比較半径(m) */
+  multiCarrierRadius?: number;
 }
 
 /** エクスポート用のstate */
@@ -63,6 +65,7 @@ export interface ProjectState {
   showNaRecurrence?: boolean;
   showMultiCarrier?: boolean;
   recurrenceRadius?: number;
+  multiCarrierRadius?: number;
 }
 
 /** stateからJSON文字列を生成する */
@@ -149,6 +152,7 @@ export function validateAndParseProject(json: string): WlmProjectFile {
     showNaRecurrence: typeof obj.showNaRecurrence === 'boolean' ? obj.showNaRecurrence : false,
     showMultiCarrier: typeof obj.showMultiCarrier === 'boolean' ? obj.showMultiCarrier : false,
     recurrenceRadius: typeof obj.recurrenceRadius === 'number' && obj.recurrenceRadius >= 0 ? obj.recurrenceRadius : 50,
+    multiCarrierRadius: typeof obj.multiCarrierRadius === 'number' && obj.multiCarrierRadius >= 0 ? obj.multiCarrierRadius : 50,
   };
 
   return result;
