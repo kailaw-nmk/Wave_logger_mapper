@@ -20,6 +20,10 @@ interface LegendProps {
   naIsolatedCount?: number;
   /** 連続不通ポイント数 */
   naConsecutiveCount?: number;
+  /** 不通再現率表示中か */
+  showNaRecurrence?: boolean;
+  /** 再現率ポイント数 */
+  naRecurrenceCount?: number;
   /** 分析クラスタ総数 */
   analysisClusterCount?: number;
   /** 完全不通エリアクラスタ数 */
@@ -72,7 +76,7 @@ function MiniShapeSvg({ shape, borderColor }: { shape: MarkerShape; borderColor:
   );
 }
 
-export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false, naIsolatedCount = 0, naConsecutiveCount = 0, analysisClusterCount = 0, analysisFutsuCount = 0, referencePointCount = 0 }: LegendProps) {
+export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false, naIsolatedCount = 0, naConsecutiveCount = 0, showNaRecurrence = false, naRecurrenceCount = 0, analysisClusterCount = 0, analysisFutsuCount = 0, referencePointCount = 0 }: LegendProps) {
   const [collapsed, setCollapsed] = useState(false);
   const entries = getLegendEntries(metric, thresholds);
 
@@ -109,7 +113,7 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
         }}
       >
         <h4 style={{ margin: 0, fontSize: 14 }}>
-          {METRIC_LABELS[metric]}
+          {showNaRecurrence ? '不通再現率' : METRIC_LABELS[metric]}
         </h4>
         <span style={{ fontSize: 10, color: '#999', marginLeft: 8 }}>
           {collapsed ? '\u25BC' : '\u25B2'}
@@ -120,28 +124,48 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
       {!collapsed && (
         <div style={{ padding: '0 16px 12px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-            {entries.map((entry) => (
-              <span key={entry.color}>
-                <span style={{ color: entry.color }}>●</span> {entry.label}
-              </span>
-            ))}
-            {naIsolatedCount > 0 && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <svg width={14} height={14} viewBox="0 0 14 14" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
-                  <polygon points="7,1 13,7 7,13 1,7" fill="#6b7280" fillOpacity={0.7} stroke="#6b7280" strokeWidth={1} />
-                </svg>
-                単点不通 ({naIsolatedCount}件)
-              </span>
-            )}
-            {naConsecutiveCount > 0 && (
-              <span>
-                <span style={{ color: '#6b7280' }}>●</span> 連続不通 ({naConsecutiveCount}件)
-              </span>
-            )}
-            {showNaPolyline && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{ display: 'inline-block', width: 16, height: 0, borderTop: '3px solid #ef4444', verticalAlign: 'middle' }} /> 不通区間
-              </span>
+            {showNaRecurrence ? (
+              <>
+                {[
+                  { color: '#ef4444', label: '75-100% (ほぼ毎回不通)' },
+                  { color: '#f97316', label: '50-75%' },
+                  { color: '#84cc16', label: '25-50%' },
+                  { color: '#22c55e', label: '1-25% (まれに不通)' },
+                ].map((e) => (
+                  <span key={e.color}>
+                    <span style={{ color: e.color }}>●</span> {e.label}
+                  </span>
+                ))}
+                <span style={{ color: '#666', fontSize: 11 }}>
+                  対象地点: {naRecurrenceCount}件
+                </span>
+              </>
+            ) : (
+              <>
+                {entries.map((entry) => (
+                  <span key={entry.color}>
+                    <span style={{ color: entry.color }}>●</span> {entry.label}
+                  </span>
+                ))}
+                {naIsolatedCount > 0 && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <svg width={14} height={14} viewBox="0 0 14 14" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                      <polygon points="7,1 13,7 7,13 1,7" fill="#6b7280" fillOpacity={0.7} stroke="#6b7280" strokeWidth={1} />
+                    </svg>
+                    単点不通 ({naIsolatedCount}件)
+                  </span>
+                )}
+                {naConsecutiveCount > 0 && (
+                  <span>
+                    <span style={{ color: '#6b7280' }}>●</span> 連続不通 ({naConsecutiveCount}件)
+                  </span>
+                )}
+                {showNaPolyline && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ display: 'inline-block', width: 16, height: 0, borderTop: '3px solid #ef4444', verticalAlign: 'middle' }} /> 不通区間
+                  </span>
+                )}
+              </>
             )}
             {analysisClusterCount > 0 && (
               <>

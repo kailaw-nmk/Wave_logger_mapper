@@ -135,6 +135,79 @@ export function toAggregatedRows(rows: CsvRow[]): AggregatedRow[] {
   }));
 }
 
+/** 不通再現率の地点データ */
+export interface NaRecurrencePoint {
+  latitude: number;
+  longitude: number;
+  /** 不通再現率 0-100 */
+  recurrenceRate: number;
+  /** 不通だった運行数 */
+  naRuns: number;
+  /** 通過した運行数 */
+  totalRuns: number;
+  /** 運行別の不通/正常詳細 */
+  runDetails: { file: string; isNa: boolean }[];
+}
+
+/** 地点ごとの不通再現率を算出する（運行=ファイル単位） */
+export function computeNaRecurrence(
+  rows: CsvRow[],
+  naCheckFn: (row: CsvRow) => boolean,
+): NaRecurrencePoint[] {
+  // 地点キー → { 運行ファイル → その運行の行リスト }
+  const locationGroups = new Map<string, { lat: number; lng: number; runs: Map<string, CsvRow[]> }>();
+
+  for (const row of rows) {
+    const locKey = `${row.latitude.toFixed(5)},${row.longitude.toFixed(5)}`;
+    let loc = locationGroups.get(locKey);
+    if (!loc) {
+      loc = { lat: row.latitude, lng: row.longitude, runs: new Map() };
+      locationGroups.set(locKey, loc);
+    }
+    const file = row._sourceFile;
+    let runRows = loc.runs.get(file);
+    if (!runRows) {
+      runRows = [];
+      loc.runs.set(file, runRows);
+    }
+    runRows.push(row);
+  }
+
+  const result: NaRecurrencePoint[] = [];
+
+  for (const loc of locationGroups.values()) {
+    const totalRuns = loc.runs.size;
+    if (totalRuns < 1) continue;
+
+    const runDetails: { file: string; isNa: boolean }[] = [];
+    let naRuns = 0;
+
+    for (const [file, runRows] of loc.runs) {
+      // その運行の全測定点がNAなら不通とみなす
+      const isNa = runRows.every(naCheckFn);
+      if (isNa) naRuns++;
+      runDetails.push({ file, isNa });
+    }
+
+    // 再現率0%（全運行で正常）の地点は除外
+    if (naRuns === 0) continue;
+
+    // ファイル名でソート
+    runDetails.sort((a, b) => a.file.localeCompare(b.file));
+
+    result.push({
+      latitude: loc.lat,
+      longitude: loc.lng,
+      recurrenceRate: (naRuns / totalRuns) * 100,
+      naRuns,
+      totalRuns,
+      runDetails,
+    });
+  }
+
+  return result;
+}
+
 /** null を除外して平均を計算する */
 function averageNullable(values: (number | null)[]): number | null {
   const valid = values.filter((v): v is number => v !== null);

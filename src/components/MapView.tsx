@@ -4,7 +4,7 @@ import React, { useMemo, useCallback, useEffect } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Circle, Marker, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
 import DraggablePopup from './DraggablePopup';
 import type { LatLngBounds } from 'leaflet';
-import type { AggregatedRow, CsvRow } from '@/lib/csvParser';
+import type { AggregatedRow, CsvRow, NaRecurrencePoint } from '@/lib/csvParser';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { getColor, METRIC_LABELS } from '@/lib/colorScale';
 import type { AnalysisCluster, FutsuCluster, TeisokuCluster, ReferencePoint } from '@/lib/analysisParser';
@@ -48,6 +48,10 @@ interface MapViewProps {
   consecutiveNaPoints?: AggregatedRow[];
   /** 連続不通の表示状態 */
   showConsecutiveNa?: boolean;
+  /** 不通再現率データ */
+  naRecurrencePoints?: NaRecurrencePoint[];
+  /** 不通再現率表示モード */
+  showNaRecurrence?: boolean;
   /** 分析クラスタデータ */
   analysisClusters?: AnalysisCluster[];
   /** 分析レイヤー表示 */
@@ -416,6 +420,38 @@ function getClusterGroupKey(cluster: AnalysisCluster, mode: GroupMode): string |
 }
 
 /** 参考データのポップアップ内容を生成 */
+/** 不通再現率 → カラー（4段階） */
+function getRecurrenceColor(rate: number): string {
+  if (rate <= 25) return '#22c55e';   // 緑
+  if (rate <= 50) return '#84cc16';   // ライム
+  if (rate <= 75) return '#f97316';   // 橙
+  return '#ef4444';                   // 赤
+}
+
+/** 再現率ポイントのポップアップ */
+function buildRecurrencePopup(point: NaRecurrencePoint) {
+  return (
+    <DraggablePopup>
+      <div style={{ fontSize: 12, minWidth: 200, maxHeight: 300, overflow: 'auto' }}>
+        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+          不通再現率: {point.recurrenceRate.toFixed(0)}% ({point.naRuns}/{point.totalRuns}回)
+        </div>
+        <hr style={{ margin: '4px 0', border: 'none', borderTop: '1px solid #ddd' }} />
+        {point.runDetails.map((d) => (
+          <div key={d.file} style={{ display: 'flex', gap: 6, padding: '1px 0' }}>
+            <span style={{ color: d.isNa ? '#ef4444' : '#22c55e', fontWeight: 600 }}>
+              {d.isNa ? '不通' : '正常'}
+            </span>
+            <span style={{ color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {d.file}
+            </span>
+          </div>
+        ))}
+      </div>
+    </DraggablePopup>
+  );
+}
+
 function buildReferencePopup(point: ReferencePoint) {
   return (
     <DraggablePopup maxWidth={300}>
@@ -443,7 +479,7 @@ function buildReferencePopup(point: ReferencePoint) {
   );
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, naRecurrencePoints = [], showNaRecurrence = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // 不通区間ポリラインセグメント（連続不通非表示時は生成しない）
@@ -562,13 +598,33 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           />
         )}
 
-        {/* 通常計測ポイント（naOnlyモード時は非表示、レイヤー非表示時も隠す） */}
-        {showMeasurementLayer && !naOnly && data.map((row, i) => {
+        {/* 通常計測ポイント（naOnlyモード時・再現率モード時は非表示） */}
+        {showMeasurementLayer && !naOnly && !showNaRecurrence && data.map((row, i) => {
           const value = row[metric];
           if (value === null) return null;
           const ms = resolveCarrierStyle(markerStyles, 'measurement', row.carrier);
           const fillColor = ms.color || getColor(value, metric, thresholds);
           return renderMarker(row, i, 'pt', fillColor, groupMode, groupStyles, onPointClick, ms);
+        })}
+
+        {/* 不通再現率マーカー */}
+        {showMeasurementLayer && showNaRecurrence && naRecurrencePoints.map((pt, i) => {
+          const color = getRecurrenceColor(pt.recurrenceRate);
+          return (
+            <CircleMarker
+              key={`recur-${i}`}
+              center={[pt.latitude, pt.longitude]}
+              radius={9}
+              pathOptions={{
+                color,
+                fillColor: color,
+                fillOpacity: 0.8,
+                weight: 2,
+              }}
+            >
+              {buildRecurrencePopup(pt)}
+            </CircleMarker>
+          );
         })}
 
         {/* 連続不通ポイント（従来のスタイル） */}
@@ -659,7 +715,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         })}
       </MapContainer>
 
-      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} naIsolatedCount={isolatedNaPoints.length} naConsecutiveCount={consecutiveNaPoints.length} analysisClusterCount={showAnalysisLayer ? analysisClusters.length : 0} analysisFutsuCount={showAnalysisLayer ? analysisClusters.filter((c) => c.type === 'futsu').length : 0} referencePointCount={showReferenceLayer ? referencePoints.length : 0} />
+      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} naIsolatedCount={isolatedNaPoints.length} naConsecutiveCount={consecutiveNaPoints.length} showNaRecurrence={showNaRecurrence} naRecurrenceCount={naRecurrencePoints.length} analysisClusterCount={showAnalysisLayer ? analysisClusters.length : 0} analysisFutsuCount={showAnalysisLayer ? analysisClusters.filter((c) => c.type === 'futsu').length : 0} referencePointCount={showReferenceLayer ? referencePoints.length : 0} />
     </div>
   );
 }

@@ -3,8 +3,8 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import CsvUploader from '@/components/CsvUploader';
-import type { CsvRow, AggregatedRow } from '@/lib/csvParser';
-import { parseCsv, aggregateByLocation, toAggregatedRows } from '@/lib/csvParser';
+import type { CsvRow, AggregatedRow, NaRecurrencePoint } from '@/lib/csvParser';
+import { parseCsv, aggregateByLocation, toAggregatedRows, computeNaRecurrence } from '@/lib/csvParser';
 import type { AnalysisCluster, ReferencePoint } from '@/lib/analysisParser';
 import { detectCsvType, parseFutsuCsv, parseTeisokuCsv, parseReferenceCsv } from '@/lib/analysisParser';
 import type { MapBounds } from '@/components/MapView';
@@ -143,6 +143,8 @@ export default function HomePage() {
   // 単点不通 / 連続不通の表示切替
   const [showIsolatedNa, setShowIsolatedNa] = useState(true);
   const [showConsecutiveNa, setShowConsecutiveNa] = useState(true);
+  // 不通再現率表示
+  const [showNaRecurrence, setShowNaRecurrence] = useState(false);
   // 集約モード: true=近傍点を集約, false=全測定点を個別表示
   const [aggregate, setAggregate] = useState(true);
   // キャリアフィルタ: 選択中のキャリア（空=全表示）
@@ -264,6 +266,13 @@ export default function HomePage() {
     return result;
   }, [isolatedNaPoints, consecutiveNaPoints, showIsolatedNa, showConsecutiveNa]);
 
+  // 不通再現率（地点ごとの不通頻度）
+  const naRecurrencePoints = useMemo((): NaRecurrencePoint[] => {
+    if (naFilter === 'none' || !showNaRecurrence) return [];
+    const fn = naFilter === 'tcp' ? isTcpNa : naFilter === 'udp' ? isUdpNa : isBothNa;
+    return computeNaRecurrence(carrierFilteredRows, fn);
+  }, [carrierFilteredRows, naFilter, showNaRecurrence]);
+
   // フィルタ後の生データ（チャート用）
   const filteredRaw = useMemo(() => {
     let result = carrierFilteredRows;
@@ -370,9 +379,9 @@ export default function HomePage() {
       analysisClusters, referencePoints,
       showAnalysisLayer, showMeasurementLayer, showReferenceLayer,
       markerStyles,
-      showIsolatedNa, showConsecutiveNa,
+      showIsolatedNa, showConsecutiveNa, showNaRecurrence,
     });
-  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, referencePoints, showAnalysisLayer, showMeasurementLayer, showReferenceLayer, markerStyles, showIsolatedNa, showConsecutiveNa]);
+  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, referencePoints, showAnalysisLayer, showMeasurementLayer, showReferenceLayer, markerStyles, showIsolatedNa, showConsecutiveNa, showNaRecurrence]);
 
   const handleImport = useCallback((file: File) => {
     const reader = new FileReader();
@@ -400,6 +409,7 @@ export default function HomePage() {
         if (project.markerStyles) setMarkerStyles(project.markerStyles);
         setShowIsolatedNa(project.showIsolatedNa ?? true);
         setShowConsecutiveNa(project.showConsecutiveNa ?? true);
+        setShowNaRecurrence(project.showNaRecurrence ?? false);
       } catch (err) {
         alert(err instanceof Error ? err.message : 'プロジェクトファイルの読み込みに失敗しました。');
       }
@@ -597,6 +607,14 @@ export default function HomePage() {
                       onChange={(e) => setShowConsecutiveNa(e.target.checked)}
                     />
                     連続不通
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={showNaRecurrence}
+                      onChange={(e) => setShowNaRecurrence(e.target.checked)}
+                    />
+                    再現率
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
                     <input
@@ -882,6 +900,8 @@ export default function HomePage() {
                 isolatedNaPoints={showIsolatedNa ? isolatedNaPoints : []}
                 consecutiveNaPoints={showConsecutiveNa ? consecutiveNaPoints : []}
                 showConsecutiveNa={showConsecutiveNa}
+                naRecurrencePoints={naRecurrencePoints}
+                showNaRecurrence={showNaRecurrence}
                 analysisClusters={carrierFilteredClusters}
                 showAnalysisLayer={showAnalysisLayer}
                 showMeasurementLayer={showMeasurementLayer}
