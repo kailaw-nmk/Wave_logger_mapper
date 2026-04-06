@@ -42,6 +42,10 @@ interface MapViewProps {
   naFilter?: 'none' | 'tcp' | 'udp' | 'both';
   /** 不通ポイントのみ表示 */
   naOnly?: boolean;
+  /** 不通サークル表示モード */
+  showNaCircle?: boolean;
+  /** 不通サークル半径(m) */
+  naCircleRadius?: number;
   /** 単点不通ポイント */
   isolatedNaPoints?: AggregatedRow[];
   /** 連続不通ポイント */
@@ -531,7 +535,7 @@ function buildReferencePopup(point: ReferencePoint) {
   );
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, naRecurrencePoints = [], showNaRecurrence = false, multiCarrierPoints = [], multiCarrierSummary, showMultiCarrier = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, showReferenceCircle = false, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, showNaCircle = false, naCircleRadius = 50, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, naRecurrencePoints = [], showNaRecurrence = false, multiCarrierPoints = [], multiCarrierSummary, showMultiCarrier = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, showReferenceCircle = false, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // 不通区間ポリラインセグメント（連続不通非表示時は生成しない）
@@ -735,19 +739,37 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           );
         })}
 
-        {/* 連続不通ポイント（従来のスタイル） — 再現率・マルチ比較モード時は非表示 */}
+        {/* 連続不通ポイント — 再現率・マルチ比較モード時は非表示 */}
         {showMeasurementLayer && !showNaRecurrence && !showMultiCarrier && consecutiveNaPoints.map((row, i) => {
           const naStyleKey = naFilter === 'tcp' ? 'naTcp' as const : naFilter === 'udp' ? 'naUdp' as const : 'naBoth' as const;
           const naStyle = markerStyles[naStyleKey];
-          return renderMarker(row, i, 'na-cons', naStyle.color || '#6b7280', groupMode, groupStyles, onPointClick, naStyle);
+          const color = naStyle.color || '#6b7280';
+          if (showNaCircle) {
+            return (
+              <Circle key={`na-cons-${i}`} center={[row.latitude, row.longitude]} radius={naCircleRadius}
+                pathOptions={{ color, fillColor: color, fillOpacity: 0.25, weight: 1.5 }}>
+                {buildPopup(row)}
+              </Circle>
+            );
+          }
+          return renderMarker(row, i, 'na-cons', color, groupMode, groupStyles, onPointClick, naStyle);
         })}
 
-        {/* 単点不通ポイント（ダイヤモンド形、小さめ） — 再現率・マルチ比較モード時は非表示 */}
+        {/* 単点不通ポイント — 再現率・マルチ比較モード時は非表示 */}
         {showMeasurementLayer && !showNaRecurrence && !showMultiCarrier && isolatedNaPoints.map((row, i) => {
           const naStyleKey = naFilter === 'tcp' ? 'naTcp' as const : naFilter === 'udp' ? 'naUdp' as const : 'naBoth' as const;
           const baseStyle = markerStyles[naStyleKey];
+          const color = baseStyle.color || '#6b7280';
+          if (showNaCircle) {
+            return (
+              <Circle key={`na-iso-${i}`} center={[row.latitude, row.longitude]} radius={naCircleRadius}
+                pathOptions={{ color, fillColor: color, fillOpacity: 0.25, weight: 1.5, dashArray: '4 3' }}>
+                {buildPopup(row)}
+              </Circle>
+            );
+          }
           const isolatedStyle = { ...baseStyle, radius: Math.max(5, baseStyle.radius - 2), shape: 'diamond' as MarkerShape };
-          return renderMarker(row, i, 'na-iso', baseStyle.color || '#6b7280', groupMode, groupStyles, onPointClick, isolatedStyle);
+          return renderMarker(row, i, 'na-iso', color, groupMode, groupStyles, onPointClick, isolatedStyle);
         })}
 
         {/* 分析クラスタ（円＋中心マーカー） */}

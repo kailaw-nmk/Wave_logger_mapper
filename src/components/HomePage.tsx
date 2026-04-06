@@ -144,6 +144,9 @@ export default function HomePage() {
   // 単点不通 / 連続不通の表示切替
   const [showIsolatedNa, setShowIsolatedNa] = useState(true);
   const [showConsecutiveNa, setShowConsecutiveNa] = useState(true);
+  // 不通サークル表示（マーカー→サークル切替）
+  const [showNaCircle, setShowNaCircle] = useState(false);
+  const [naCircleRadius, setNaCircleRadius] = useState(50);
   // 不通再現率表示
   const [showNaRecurrence, setShowNaRecurrence] = useState(false);
   // マルチキャリア比較表示
@@ -644,6 +647,33 @@ export default function HomePage() {
                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
                     <input
                       type="checkbox"
+                      checked={showNaCircle}
+                      onChange={(e) => setShowNaCircle(e.target.checked)}
+                    />
+                    サークル
+                  </label>
+                  {showNaCircle && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, color: '#666' }}>
+                      <input
+                        type="number"
+                        value={naCircleRadius}
+                        onChange={(e) => setNaCircleRadius(Math.max(1, Number(e.target.value)))}
+                        min={1}
+                        step={10}
+                        style={{
+                          width: 52,
+                          padding: '2px 4px',
+                          borderRadius: 4,
+                          border: '1px solid #ccc',
+                          fontSize: 12,
+                        }}
+                      />
+                      m
+                    </label>
+                  )}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
+                    <input
+                      type="checkbox"
                       checked={showNaRecurrence}
                       onChange={(e) => {
                         setShowNaRecurrence(e.target.checked);
@@ -1041,6 +1071,8 @@ export default function HomePage() {
                 naPoints={naPoints}
                 naFilter={naFilter}
                 naOnly={naOnly}
+                showNaCircle={showNaCircle}
+                naCircleRadius={naCircleRadius}
                 isolatedNaPoints={showIsolatedNa ? isolatedNaPoints : []}
                 consecutiveNaPoints={showConsecutiveNa ? consecutiveNaPoints : []}
                 showConsecutiveNa={showConsecutiveNa}
