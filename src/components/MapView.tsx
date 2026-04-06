@@ -74,6 +74,8 @@ interface MapViewProps {
   showReferenceLayer?: boolean;
   /** 参考データサークル表示 */
   showReferenceCircle?: boolean;
+  /** ルート区間ポリライン */
+  routePolyline?: [number, number][] | null;
   /** マーカースタイル設定 */
   markerStyles?: MarkerStyles;
 }
@@ -535,7 +537,7 @@ function buildReferencePopup(point: ReferencePoint) {
   );
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, showNaCircle = false, naCircleRadius = 50, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, naRecurrencePoints = [], showNaRecurrence = false, multiCarrierPoints = [], multiCarrierSummary, showMultiCarrier = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, showReferenceCircle = false, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, showNaCircle = false, naCircleRadius = 50, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, naRecurrencePoints = [], showNaRecurrence = false, multiCarrierPoints = [], multiCarrierSummary, showMultiCarrier = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, showReferenceCircle = false, routePolyline, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // 不通区間ポリラインセグメント（連続不通非表示時は生成しない）
@@ -813,6 +815,16 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
             </React.Fragment>
           );
         })}
+
+        {/* ルート区間ポリライン */}
+        {routePolyline && routePolyline.length > 1 && (
+          <Polyline
+            positions={routePolyline}
+            weight={5}
+            color="#3b82f6"
+            opacity={0.7}
+          />
+        )}
 
         {/* 参考データサークル（時速80km×10秒≒222m） */}
         {showReferenceLayer && showReferenceCircle && referencePoints.map((point, i) => (

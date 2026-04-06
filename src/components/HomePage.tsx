@@ -15,6 +15,7 @@ import { assignGroupStyles } from '@/lib/groupStyle';
 import { downloadProjectFile, validateAndParseProject } from '@/lib/projectFile';
 import type { MarkerStyles } from '@/lib/markerStyle';
 import { DEFAULT_MARKER_STYLES } from '@/lib/markerStyle';
+import { fetchRoute, filterRowsByRoute } from '@/lib/routeFilter';
 
 // Leafletはブラウザ専用のためSSR無効
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
@@ -159,6 +160,13 @@ export default function HomePage() {
   const [recurrenceRadius, setRecurrenceRadius] = useState(50);
   // 再現率フィルタ閾値(%)
   const [recurrenceMinPct, setRecurrenceMinPct] = useState(0);
+  // ルート区間フィルタ
+  const [routeFrom, setRouteFrom] = useState<ReferencePoint | null>(null);
+  const [routeTo, setRouteTo] = useState<ReferencePoint | null>(null);
+  const [routePolyline, setRoutePolyline] = useState<[number, number][] | null>(null);
+  const [routeDistance, setRouteDistance] = useState(100);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
   // 集約モード: true=近傍点を集約, false=全測定点を個別表示
   const [aggregate, setAggregate] = useState(true);
   // キャリアフィルタ: 選択中のキャリア（空=全表示）
@@ -203,6 +211,34 @@ export default function HomePage() {
     };
   }, []);
 
+  // ルート区間取得
+  useEffect(() => {
+    if (!routeFrom || !routeTo) {
+      setRoutePolyline(null);
+      setRouteError(null);
+      return;
+    }
+    let cancelled = false;
+    setRouteLoading(true);
+    setRouteError(null);
+    fetchRoute(
+      { lat: routeFrom.lat, lon: routeFrom.lon },
+      { lat: routeTo.lat, lon: routeTo.lon },
+    ).then((polyline) => {
+      if (!cancelled) {
+        setRoutePolyline(polyline);
+        setRouteLoading(false);
+      }
+    }).catch((err) => {
+      if (!cancelled) {
+        setRouteError(err instanceof Error ? err.message : 'ルート取得エラー');
+        setRoutePolyline(null);
+        setRouteLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [routeFrom, routeTo]);
+
   // データに含まれるキャリア一覧
   const availableCarriers = useMemo(() => {
     const set = new Set<string>();
@@ -221,13 +257,19 @@ export default function HomePage() {
     return rawRows.filter((r) => r.carrier !== null && selectedCarriers.has(r.carrier));
   }, [rawRows, selectedCarriers]);
 
+  // ルートフィルタ適用後の生データ
+  const routeFilteredRows = useMemo(() => {
+    if (!routePolyline) return carrierFilteredRows;
+    return filterRowsByRoute(carrierFilteredRows, routePolyline, routeDistance);
+  }, [carrierFilteredRows, routePolyline, routeDistance]);
+
   // キャリアフィルタ適用後の分析クラスタ
   const carrierFilteredClusters = useMemo(() => {
     if (selectedCarriers.size === 0) return analysisClusters;
     return analysisClusters.filter((c) => selectedCarriers.has(c.carrier));
   }, [analysisClusters, selectedCarriers]);
 
-  const data = useMemo(() => aggregate ? aggregateByLocation(carrierFilteredRows) : toAggregatedRows(carrierFilteredRows), [carrierFilteredRows, aggregate]);
+  const data = useMemo(() => aggregate ? aggregateByLocation(routeFilteredRows) : toAggregatedRows(routeFilteredRows), [routeFilteredRows, aggregate]);
 
   // グループスタイルを計算（分析クラスタのキーも含める）
   const groupStyles = useMemo(() => {
@@ -265,12 +307,12 @@ export default function HomePage() {
   const { isolatedNaPoints, consecutiveNaPoints } = useMemo(() => {
     if (naFilter === 'none') return { isolatedNaPoints: [] as AggregatedRow[], consecutiveNaPoints: [] as AggregatedRow[] };
     const fn = naFilter === 'tcp' ? isTcpNa : naFilter === 'udp' ? isUdpNa : isBothNa;
-    const { isolated, consecutive } = classifyNaRows(carrierFilteredRows, fn);
+    const { isolated, consecutive } = classifyNaRows(routeFilteredRows, fn);
     return {
       isolatedNaPoints: aggregate ? aggregateByLocation(isolated) : toAggregatedRows(isolated),
       consecutiveNaPoints: aggregate ? aggregateByLocation(consecutive) : toAggregatedRows(consecutive),
     };
-  }, [carrierFilteredRows, naFilter, aggregate]);
+  }, [routeFilteredRows, naFilter, aggregate]);
 
   // 表示用に結合（フィルタ状態に応じて）
   const naPoints = useMemo(() => {
@@ -284,8 +326,8 @@ export default function HomePage() {
   const naRecurrencePointsAll = useMemo((): NaRecurrencePoint[] => {
     if (naFilter === 'none' || !showNaRecurrence) return [];
     const fn = naFilter === 'tcp' ? isTcpNa : naFilter === 'udp' ? isUdpNa : isBothNa;
-    return computeNaRecurrence(carrierFilteredRows, fn, recurrenceRadius);
-  }, [carrierFilteredRows, naFilter, showNaRecurrence, recurrenceRadius]);
+    return computeNaRecurrence(routeFilteredRows, fn, recurrenceRadius);
+  }, [routeFilteredRows, naFilter, showNaRecurrence, recurrenceRadius]);
 
   // 再現率フィルタ適用
   const naRecurrencePoints = useMemo((): NaRecurrencePoint[] => {
@@ -308,7 +350,7 @@ export default function HomePage() {
 
   // フィルタ後の生データ（チャート用）
   const filteredRaw = useMemo(() => {
-    let result = carrierFilteredRows;
+    let result = routeFilteredRows;
     if (filterEnabled) {
       const higherWorse = isHigherWorse(metric);
       result = result.filter((row) => {
@@ -317,7 +359,7 @@ export default function HomePage() {
       });
     }
     return result;
-  }, [carrierFilteredRows, filterEnabled, filterMax, metric]);
+  }, [routeFilteredRows, filterEnabled, filterMax, metric]);
 
   // マップ表示範囲内の生データ（チャート用）
   const chartData = useMemo(() => {
@@ -931,6 +973,68 @@ export default function HomePage() {
               </div>
             )}
 
+            {/* ルート区間フィルタ */}
+            {referencePoints.length >= 2 && (
+              <div style={{ display: 'flex', gap: 4, fontSize: 12, alignItems: 'center' }}>
+                <span style={{ color: '#666', fontWeight: 600 }}>区間:</span>
+                <select
+                  value={routeFrom ? `${routeFrom.lat},${routeFrom.lon}` : ''}
+                  onChange={(e) => {
+                    if (!e.target.value) { setRouteFrom(null); return; }
+                    const pt = referencePoints.find((r) => `${r.lat},${r.lon}` === e.target.value);
+                    setRouteFrom(pt ?? null);
+                  }}
+                  style={{ padding: '2px 4px', borderRadius: 4, border: '1px solid #ccc', fontSize: 12, maxWidth: 120 }}
+                >
+                  <option value="">始点...</option>
+                  {referencePoints.map((r, i) => (
+                    <option key={`from-${i}`} value={`${r.lat},${r.lon}`}>{r.label || `#${r.rank}`}</option>
+                  ))}
+                </select>
+                <span>→</span>
+                <select
+                  value={routeTo ? `${routeTo.lat},${routeTo.lon}` : ''}
+                  onChange={(e) => {
+                    if (!e.target.value) { setRouteTo(null); return; }
+                    const pt = referencePoints.find((r) => `${r.lat},${r.lon}` === e.target.value);
+                    setRouteTo(pt ?? null);
+                  }}
+                  style={{ padding: '2px 4px', borderRadius: 4, border: '1px solid #ccc', fontSize: 12, maxWidth: 120 }}
+                >
+                  <option value="">終点...</option>
+                  {referencePoints.map((r, i) => (
+                    <option key={`to-${i}`} value={`${r.lat},${r.lon}`}>{r.label || `#${r.rank}`}</option>
+                  ))}
+                </select>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 2, color: '#666' }}>
+                  <input
+                    type="number"
+                    value={routeDistance}
+                    onChange={(e) => setRouteDistance(Math.max(1, Number(e.target.value)))}
+                    min={1}
+                    step={10}
+                    style={{ width: 48, padding: '2px 4px', borderRadius: 4, border: '1px solid #ccc', fontSize: 12 }}
+                  />
+                  m
+                </label>
+                {routePolyline && (
+                  <button
+                    onClick={() => { setRouteFrom(null); setRouteTo(null); }}
+                    style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #ccc', background: '#fff', fontSize: 12, cursor: 'pointer' }}
+                  >
+                    ✕
+                  </button>
+                )}
+                {routeLoading && <span style={{ color: '#3b82f6' }}>読込中...</span>}
+                {routeError && <span style={{ color: '#ef4444' }}>{routeError}</span>}
+                {routePolyline && !routeLoading && (
+                  <span style={{ fontSize: 11, background: '#e0e7ff', color: '#3b4fc4', padding: '1px 6px', borderRadius: 8 }}>
+                    {routeFilteredRows.length} / {carrierFilteredRows.length} 件
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* プロジェクト保存/読込 */}
             <button
               onClick={handleExport}
@@ -1087,6 +1191,7 @@ export default function HomePage() {
                 referencePoints={referencePoints}
                 showReferenceLayer={showReferenceLayer}
                 showReferenceCircle={showReferenceCircle}
+                routePolyline={routePolyline}
                 markerStyles={markerStyles}
               />
               {/* フィルタ適用中バッジ */}
