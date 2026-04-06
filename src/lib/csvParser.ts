@@ -209,6 +209,130 @@ export function computeNaRecurrence(
 }
 
 /** null を除外して平均を計算する */
+/** マルチキャリア比較の地点データ */
+export interface MultiCarrierPoint {
+  latitude: number;
+  longitude: number;
+  /** 各キャリアの不通有無 */
+  carrierStatus: { carrier: string; hasNa: boolean; naRuns: number; totalRuns: number }[];
+  /** 全キャリアが不通（マルチでも解消不可） */
+  allNa: boolean;
+  /** 不通のキャリア数 */
+  naCarrierCount: number;
+  /** 全キャリア数 */
+  totalCarriers: number;
+}
+
+/** マルチキャリアサマリ統計 */
+export interface MultiCarrierSummary {
+  /** キャリア別の不通地点数 */
+  perCarrier: { carrier: string; naLocationCount: number }[];
+  /** 全キャリア併用時の不通地点数（allNaの数） */
+  combinedNaCount: number;
+  /** 最大単独不通数 */
+  maxSingleNaCount: number;
+  /** 削減率 (%) */
+  reductionRate: number;
+}
+
+/** 地点ごとのマルチキャリアカバレッジを算出する */
+export function computeMultiCarrierCoverage(
+  rows: CsvRow[],
+  naCheckFn: (row: CsvRow) => boolean,
+  carriers: string[],
+): { points: MultiCarrierPoint[]; summary: MultiCarrierSummary } {
+  // 地点キー → { キャリア → { 運行ファイル → その運行の行リスト } }
+  const locationGroups = new Map<string, {
+    lat: number;
+    lng: number;
+    carrierRuns: Map<string, Map<string, CsvRow[]>>;
+  }>();
+
+  for (const row of rows) {
+    if (!row.carrier || !carriers.includes(row.carrier)) continue;
+    const locKey = `${row.latitude.toFixed(5)},${row.longitude.toFixed(5)}`;
+    let loc = locationGroups.get(locKey);
+    if (!loc) {
+      loc = { lat: row.latitude, lng: row.longitude, carrierRuns: new Map() };
+      locationGroups.set(locKey, loc);
+    }
+    let carrierMap = loc.carrierRuns.get(row.carrier);
+    if (!carrierMap) {
+      carrierMap = new Map();
+      loc.carrierRuns.set(row.carrier, carrierMap);
+    }
+    const file = row._sourceFile;
+    let runRows = carrierMap.get(file);
+    if (!runRows) {
+      runRows = [];
+      carrierMap.set(file, runRows);
+    }
+    runRows.push(row);
+  }
+
+  const points: MultiCarrierPoint[] = [];
+  // キャリア別の不通地点数カウント用
+  const perCarrierNaCounts = new Map<string, number>();
+  for (const c of carriers) perCarrierNaCounts.set(c, 0);
+  let combinedNaCount = 0;
+
+  for (const loc of locationGroups.values()) {
+    const carrierStatus: MultiCarrierPoint['carrierStatus'] = [];
+    let naCarrierCount = 0;
+
+    for (const carrier of carriers) {
+      const runMap = loc.carrierRuns.get(carrier);
+      if (!runMap || runMap.size === 0) {
+        // このキャリアはこの地点を通過していない → 不通扱い（データなし）
+        carrierStatus.push({ carrier, hasNa: true, naRuns: 0, totalRuns: 0 });
+        naCarrierCount++;
+        perCarrierNaCounts.set(carrier, (perCarrierNaCounts.get(carrier) ?? 0) + 1);
+        continue;
+      }
+      let naRuns = 0;
+      const totalRuns = runMap.size;
+      for (const runRows of runMap.values()) {
+        if (runRows.every(naCheckFn)) naRuns++;
+      }
+      const hasNa = naRuns > 0;
+      carrierStatus.push({ carrier, hasNa, naRuns, totalRuns });
+      if (hasNa) {
+        naCarrierCount++;
+        perCarrierNaCounts.set(carrier, (perCarrierNaCounts.get(carrier) ?? 0) + 1);
+      }
+    }
+
+    // 全キャリア正常の地点は除外
+    if (naCarrierCount === 0) continue;
+
+    const allNa = naCarrierCount === carriers.length;
+    if (allNa) combinedNaCount++;
+
+    points.push({
+      latitude: loc.lat,
+      longitude: loc.lng,
+      carrierStatus,
+      allNa,
+      naCarrierCount,
+      totalCarriers: carriers.length,
+    });
+  }
+
+  const perCarrier = carriers.map((c) => ({
+    carrier: c,
+    naLocationCount: perCarrierNaCounts.get(c) ?? 0,
+  }));
+  const maxSingleNaCount = Math.max(...perCarrier.map((p) => p.naLocationCount), 0);
+  const reductionRate = maxSingleNaCount > 0
+    ? ((maxSingleNaCount - combinedNaCount) / maxSingleNaCount) * 100
+    : 0;
+
+  return {
+    points,
+    summary: { perCarrier, combinedNaCount, maxSingleNaCount, reductionRate },
+  };
+}
+
 function averageNullable(values: (number | null)[]): number | null {
   const valid = values.filter((v): v is number => v !== null);
   if (valid.length === 0) return null;

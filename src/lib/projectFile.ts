@@ -33,6 +33,8 @@ export interface WlmProjectFile {
   showConsecutiveNa?: boolean;
   /** 不通再現率表示 */
   showNaRecurrence?: boolean;
+  /** マルチキャリア比較表示 */
+  showMultiCarrier?: boolean;
 }
 
 /** エクスポート用のstate */
@@ -57,6 +59,7 @@ export interface ProjectState {
   showIsolatedNa?: boolean;
   showConsecutiveNa?: boolean;
   showNaRecurrence?: boolean;
+  showMultiCarrier?: boolean;
 }
 
 /** stateからJSON文字列を生成する */
@@ -141,6 +144,7 @@ export function validateAndParseProject(json: string): WlmProjectFile {
     showIsolatedNa: typeof obj.showIsolatedNa === 'boolean' ? obj.showIsolatedNa : true,
     showConsecutiveNa: typeof obj.showConsecutiveNa === 'boolean' ? obj.showConsecutiveNa : true,
     showNaRecurrence: typeof obj.showNaRecurrence === 'boolean' ? obj.showNaRecurrence : false,
+    showMultiCarrier: typeof obj.showMultiCarrier === 'boolean' ? obj.showMultiCarrier : false,
   };
 
   return result;

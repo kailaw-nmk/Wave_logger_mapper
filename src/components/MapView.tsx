@@ -4,7 +4,7 @@ import React, { useMemo, useCallback, useEffect } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Circle, Marker, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
 import DraggablePopup from './DraggablePopup';
 import type { LatLngBounds } from 'leaflet';
-import type { AggregatedRow, CsvRow, NaRecurrencePoint } from '@/lib/csvParser';
+import type { AggregatedRow, CsvRow, NaRecurrencePoint, MultiCarrierPoint, MultiCarrierSummary } from '@/lib/csvParser';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { getColor, METRIC_LABELS } from '@/lib/colorScale';
 import type { AnalysisCluster, FutsuCluster, TeisokuCluster, ReferencePoint } from '@/lib/analysisParser';
@@ -52,6 +52,12 @@ interface MapViewProps {
   naRecurrencePoints?: NaRecurrencePoint[];
   /** 不通再現率表示モード */
   showNaRecurrence?: boolean;
+  /** マルチキャリア比較データ */
+  multiCarrierPoints?: MultiCarrierPoint[];
+  /** マルチキャリアサマリ統計 */
+  multiCarrierSummary?: MultiCarrierSummary | null;
+  /** マルチキャリア比較表示モード */
+  showMultiCarrier?: boolean;
   /** 分析クラスタデータ */
   analysisClusters?: AnalysisCluster[];
   /** 分析レイヤー表示 */
@@ -452,6 +458,45 @@ function buildRecurrencePopup(point: NaRecurrencePoint) {
   );
 }
 
+/** マルチキャリア地点のカラー */
+function getMultiCarrierColor(point: MultiCarrierPoint): string {
+  if (point.allNa) return '#ef4444';          // 赤: 全キャリア不通
+  if (point.naCarrierCount === 1) return '#22c55e';  // 緑: 1キャリアのみ不通
+  return '#f97316';                             // 橙: 複数不通だが全部ではない
+}
+
+/** マルチキャリアポイントのポップアップ */
+function buildMultiCarrierPopup(point: MultiCarrierPoint) {
+  return (
+    <DraggablePopup>
+      <div style={{ fontSize: 12, minWidth: 220, maxHeight: 300, overflow: 'auto' }}>
+        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+          マルチキャリア比較
+        </div>
+        <hr style={{ margin: '4px 0', border: 'none', borderTop: '1px solid #ddd' }} />
+        {point.carrierStatus.map((cs) => (
+          <div key={cs.carrier} style={{ display: 'flex', gap: 6, padding: '2px 0' }}>
+            <span style={{ color: cs.hasNa ? '#ef4444' : '#22c55e', fontWeight: 600, minWidth: 28 }}>
+              {cs.hasNa ? '不通' : '正常'}
+            </span>
+            <span style={{ fontWeight: 600 }}>{cs.carrier}</span>
+            {cs.totalRuns > 0 && (
+              <span style={{ color: '#888' }}>({cs.naRuns}/{cs.totalRuns}回)</span>
+            )}
+            {cs.totalRuns === 0 && (
+              <span style={{ color: '#888' }}>(データなし)</span>
+            )}
+          </div>
+        ))}
+        <hr style={{ margin: '4px 0', border: 'none', borderTop: '1px solid #ddd' }} />
+        <div style={{ fontWeight: 600, color: point.allNa ? '#ef4444' : '#22c55e' }}>
+          {point.allNa ? '全キャリア不通 — マルチでも解消不可' : `マルチで解消 ✓ (${point.naCarrierCount}/${point.totalCarriers}キャリアが不通)`}
+        </div>
+      </div>
+    </DraggablePopup>
+  );
+}
+
 function buildReferencePopup(point: ReferencePoint) {
   return (
     <DraggablePopup maxWidth={300}>
@@ -479,7 +524,7 @@ function buildReferencePopup(point: ReferencePoint) {
   );
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, naRecurrencePoints = [], showNaRecurrence = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, naRecurrencePoints = [], showNaRecurrence = false, multiCarrierPoints = [], multiCarrierSummary, showMultiCarrier = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // 不通区間ポリラインセグメント（連続不通非表示時は生成しない）
@@ -598,8 +643,8 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           />
         )}
 
-        {/* 通常計測ポイント（naOnlyモード時・再現率モード時は非表示） */}
-        {showMeasurementLayer && !naOnly && !showNaRecurrence && data.map((row, i) => {
+        {/* 通常計測ポイント（naOnly/再現率/マルチ比較モード時は非表示） */}
+        {showMeasurementLayer && !naOnly && !showNaRecurrence && !showMultiCarrier && data.map((row, i) => {
           const value = row[metric];
           if (value === null) return null;
           const ms = resolveCarrierStyle(markerStyles, 'measurement', row.carrier);
@@ -623,6 +668,26 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
               }}
             >
               {buildRecurrencePopup(pt)}
+            </CircleMarker>
+          );
+        })}
+
+        {/* マルチキャリア比較マーカー */}
+        {showMeasurementLayer && showMultiCarrier && multiCarrierPoints.map((pt, i) => {
+          const color = getMultiCarrierColor(pt);
+          return (
+            <CircleMarker
+              key={`mc-${i}`}
+              center={[pt.latitude, pt.longitude]}
+              radius={9}
+              pathOptions={{
+                color,
+                fillColor: color,
+                fillOpacity: 0.8,
+                weight: 2,
+              }}
+            >
+              {buildMultiCarrierPopup(pt)}
             </CircleMarker>
           );
         })}
@@ -715,7 +780,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         })}
       </MapContainer>
 
-      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} naIsolatedCount={isolatedNaPoints.length} naConsecutiveCount={consecutiveNaPoints.length} showNaRecurrence={showNaRecurrence} naRecurrenceCount={naRecurrencePoints.length} analysisClusterCount={showAnalysisLayer ? analysisClusters.length : 0} analysisFutsuCount={showAnalysisLayer ? analysisClusters.filter((c) => c.type === 'futsu').length : 0} referencePointCount={showReferenceLayer ? referencePoints.length : 0} />
+      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} naIsolatedCount={isolatedNaPoints.length} naConsecutiveCount={consecutiveNaPoints.length} showNaRecurrence={showNaRecurrence} naRecurrenceCount={naRecurrencePoints.length} showMultiCarrier={showMultiCarrier} multiCarrierSummary={multiCarrierSummary} analysisClusterCount={showAnalysisLayer ? analysisClusters.length : 0} analysisFutsuCount={showAnalysisLayer ? analysisClusters.filter((c) => c.type === 'futsu').length : 0} referencePointCount={showReferenceLayer ? referencePoints.length : 0} />
     </div>
   );
 }

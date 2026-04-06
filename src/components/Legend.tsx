@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { METRIC_LABELS, getLegendEntries } from '@/lib/colorScale';
 import type { GroupMode, GroupStyle, MarkerShape } from '@/lib/groupStyle';
+import type { MultiCarrierSummary } from '@/lib/csvParser';
 
 interface LegendProps {
   metric: Metric;
@@ -24,6 +25,10 @@ interface LegendProps {
   showNaRecurrence?: boolean;
   /** 再現率ポイント数 */
   naRecurrenceCount?: number;
+  /** マルチキャリア比較表示中か */
+  showMultiCarrier?: boolean;
+  /** マルチキャリアサマリ */
+  multiCarrierSummary?: MultiCarrierSummary | null;
   /** 分析クラスタ総数 */
   analysisClusterCount?: number;
   /** 完全不通エリアクラスタ数 */
@@ -76,7 +81,7 @@ function MiniShapeSvg({ shape, borderColor }: { shape: MarkerShape; borderColor:
   );
 }
 
-export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false, naIsolatedCount = 0, naConsecutiveCount = 0, showNaRecurrence = false, naRecurrenceCount = 0, analysisClusterCount = 0, analysisFutsuCount = 0, referencePointCount = 0 }: LegendProps) {
+export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false, naIsolatedCount = 0, naConsecutiveCount = 0, showNaRecurrence = false, naRecurrenceCount = 0, showMultiCarrier = false, multiCarrierSummary, analysisClusterCount = 0, analysisFutsuCount = 0, referencePointCount = 0 }: LegendProps) {
   const [collapsed, setCollapsed] = useState(false);
   const entries = getLegendEntries(metric, thresholds);
 
@@ -113,7 +118,7 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
         }}
       >
         <h4 style={{ margin: 0, fontSize: 14 }}>
-          {showNaRecurrence ? '不通再現率' : METRIC_LABELS[metric]}
+          {showMultiCarrier ? 'マルチキャリア比較' : showNaRecurrence ? '不通再現率' : METRIC_LABELS[metric]}
         </h4>
         <span style={{ fontSize: 10, color: '#999', marginLeft: 8 }}>
           {collapsed ? '\u25BC' : '\u25B2'}
@@ -124,7 +129,33 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
       {!collapsed && (
         <div style={{ padding: '0 16px 12px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-            {showNaRecurrence ? (
+            {showMultiCarrier ? (
+              <>
+                {[
+                  { color: '#22c55e', label: '1社のみ不通 → マルチで解消' },
+                  { color: '#f97316', label: '複数社不通 → マルチで解消' },
+                  { color: '#ef4444', label: '全社不通 → 解消不可' },
+                ].map((e) => (
+                  <span key={e.color}>
+                    <span style={{ color: e.color }}>●</span> {e.label}
+                  </span>
+                ))}
+                {multiCarrierSummary && (
+                  <>
+                    <hr style={{ margin: '4px 0', border: 'none', borderTop: '1px solid #eee' }} />
+                    {multiCarrierSummary.perCarrier.map((pc) => (
+                      <span key={pc.carrier} style={{ fontSize: 11, color: '#666' }}>
+                        {pc.carrier} 単独: {pc.naLocationCount}地点不通
+                      </span>
+                    ))}
+                    <span style={{ fontWeight: 600, fontSize: 11 }}>
+                      併用: {multiCarrierSummary.combinedNaCount}地点不通
+                      ({multiCarrierSummary.reductionRate.toFixed(0)}%削減)
+                    </span>
+                  </>
+                )}
+              </>
+            ) : showNaRecurrence ? (
               <>
                 {[
                   { color: '#ef4444', label: '75-100% (ほぼ毎回不通)' },
