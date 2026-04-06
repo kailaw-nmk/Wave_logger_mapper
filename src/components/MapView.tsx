@@ -7,7 +7,7 @@ import type { LatLngBounds } from 'leaflet';
 import type { AggregatedRow, CsvRow, NaRecurrencePoint, MultiCarrierPoint, MultiCarrierSummary } from '@/lib/csvParser';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { getColor, METRIC_LABELS } from '@/lib/colorScale';
-import type { AnalysisCluster, FutsuCluster, TeisokuCluster, ReferencePoint } from '@/lib/analysisParser';
+import type { AnalysisCluster, FutsuCluster, TeisokuCluster, ReferencePoint, KyotenPoint } from '@/lib/analysisParser';
 import type { MarkerStyles } from '@/lib/markerStyle';
 import { DEFAULT_MARKER_STYLES, resolveCarrierStyle } from '@/lib/markerStyle';
 import type { GroupMode, GroupStyle, MarkerShape } from '@/lib/groupStyle';
@@ -74,6 +74,10 @@ interface MapViewProps {
   showReferenceLayer?: boolean;
   /** 参考データサークル表示 */
   showReferenceCircle?: boolean;
+  /** 拠点データ */
+  kyotenPoints?: KyotenPoint[];
+  /** 拠点データレイヤー表示 */
+  showKyotenLayer?: boolean;
   /** ルート区間ポリライン */
   routePolyline?: [number, number][] | null;
   /** マーカースタイル設定 */
@@ -537,7 +541,7 @@ function buildReferencePopup(point: ReferencePoint) {
   );
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, showNaCircle = false, naCircleRadius = 50, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, naRecurrencePoints = [], showNaRecurrence = false, multiCarrierPoints = [], multiCarrierSummary, showMultiCarrier = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, showReferenceCircle = false, routePolyline, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, showNaCircle = false, naCircleRadius = 50, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, naRecurrencePoints = [], showNaRecurrence = false, multiCarrierPoints = [], multiCarrierSummary, showMultiCarrier = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, showReferenceCircle = false, kyotenPoints = [], showKyotenLayer = true, routePolyline, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // 不通区間ポリラインセグメント（連続不通非表示時は生成しない）
@@ -575,6 +579,9 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
     if (showReferenceLayer) {
       for (const r of referencePoints) {
         points.push({ ...dummy, latitude: r.lat, longitude: r.lon, _sourceFile: r._sourceFile, sourceFiles: [r._sourceFile], carriers: [] });
+      }
+      for (const k of kyotenPoints) {
+        points.push({ ...dummy, latitude: k.lat, longitude: k.lon, _sourceFile: k._sourceFile, sourceFiles: [k._sourceFile], carriers: [] });
       }
     }
     return points;
@@ -871,9 +878,31 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
             </CircleMarker>
           );
         })}
+
+        {/* 拠点データマーカー */}
+        {showKyotenLayer && kyotenPoints.map((point, i) => (
+          <CircleMarker
+            key={`kyo-${i}`}
+            center={[point.lat, point.lon]}
+            radius={7}
+            pathOptions={{
+              color: '#10b981',
+              fillColor: '#10b981',
+              fillOpacity: 0.8,
+              weight: 2,
+            }}
+          >
+            <DraggablePopup>
+              <div style={{ fontSize: 12, minWidth: 120 }}>
+                <strong>{point.label || `拠点#${point.rank}`}</strong>
+                {point.direction && <div>方向: {point.direction}</div>}
+              </div>
+            </DraggablePopup>
+          </CircleMarker>
+        ))}
       </MapContainer>
 
-      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} naIsolatedCount={isolatedNaPoints.length} naConsecutiveCount={consecutiveNaPoints.length} showNaRecurrence={showNaRecurrence} naRecurrenceCount={naRecurrencePoints.length} showMultiCarrier={showMultiCarrier} multiCarrierSummary={multiCarrierSummary} analysisClusterCount={showAnalysisLayer ? analysisClusters.length : 0} analysisFutsuCount={showAnalysisLayer ? analysisClusters.filter((c) => c.type === 'futsu').length : 0} referencePointCount={showReferenceLayer ? referencePoints.length : 0} />
+      <Legend metric={metric} pointCount={data.length} fileCount={fileCount} groupMode={groupMode} groupStyles={groupStyles} thresholds={thresholds} naPointCount={naPoints.length} showNaPolyline={naPolylineSegments.length > 0} naIsolatedCount={isolatedNaPoints.length} naConsecutiveCount={consecutiveNaPoints.length} showNaRecurrence={showNaRecurrence} naRecurrenceCount={naRecurrencePoints.length} showMultiCarrier={showMultiCarrier} multiCarrierSummary={multiCarrierSummary} analysisClusterCount={showAnalysisLayer ? analysisClusters.length : 0} analysisFutsuCount={showAnalysisLayer ? analysisClusters.filter((c) => c.type === 'futsu').length : 0} referencePointCount={showReferenceLayer ? referencePoints.length : 0} kyotenPointCount={showKyotenLayer ? kyotenPoints.length : 0} />
     </div>
   );
 }

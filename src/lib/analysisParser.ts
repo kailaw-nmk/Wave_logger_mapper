@@ -51,14 +51,26 @@ export interface ReferencePoint {
   _sourceFile: string;
 }
 
+/** 拠点データ（SA/IC等の地点情報） */
+export interface KyotenPoint {
+  type: 'kyoten';
+  rank: number;
+  label: string;
+  direction: string;
+  distance_m: number;
+  lat: number;
+  lon: number;
+  _sourceFile: string;
+}
+
 /** 分析クラスタの共用型 */
 export type AnalysisCluster = FutsuCluster | TeisokuCluster;
 
 /** CSVの種別 */
-export type CsvType = 'measurement' | 'futsu' | 'teisoku' | 'reference';
+export type CsvType = 'measurement' | 'futsu' | 'teisoku' | 'reference' | 'kyoten';
 
-/** CSVヘッダーからファイル種別を自動判別する */
-export function detectCsvType(text: string): CsvType {
+/** CSVヘッダーとファイル名からファイル種別を自動判別する */
+export function detectCsvType(text: string, fileName?: string): CsvType {
   const cleaned = text.replace(/^\uFEFF/, '');
   const firstLine = cleaned.split(/\r?\n/)[0];
   const columns = firstLine.split(',').map((c) => c.trim());
@@ -71,8 +83,9 @@ export function detectCsvType(text: string): CsvType {
   if (columns.includes('cluster_id') && columns.includes('point_count') && columns.includes('lat_center')) {
     return 'futsu';
   }
-  // 参考データ: 順位 + 緯度 + 経度 が存在
+  // 順位 + 緯度 + 経度 が存在 → ファイル名で参考データ/拠点データを区別
   if (columns.includes('順位') && columns.includes('緯度') && columns.includes('経度')) {
+    if (fileName && /拠点/.test(fileName)) return 'kyoten';
     return 'reference';
   }
   return 'measurement';
@@ -157,6 +170,34 @@ export function parseReferenceCsv(text: string, sourceFile: string): ReferencePo
     .filter((row) => row['緯度'] && row['経度'])
     .map((row) => ({
       type: 'reference' as const,
+      rank: parseInt(row['順位'], 10) || 0,
+      label: labelCol ? (row[labelCol] ?? '') : '',
+      direction: dirCol ? (row[dirCol] ?? '') : '',
+      distance_m: distCol ? (parseFloat(row[distCol]) || 0) : 0,
+      lat: parseFloat(row['緯度']),
+      lon: parseFloat(row['経度']),
+      _sourceFile: sourceFile,
+    }))
+    .filter((row) => !isNaN(row.lat) && !isNaN(row.lon));
+}
+
+/** 拠点データCSVをパースする（参考データと同じ形式、type='kyoten'） */
+export function parseKyotenCsv(text: string, sourceFile: string): KyotenPoint[] {
+  const cleaned = text.replace(/^\uFEFF/, '');
+  const result = Papa.parse<Record<string, string>>(cleaned, {
+    header: true,
+    skipEmptyLines: true,
+  });
+
+  const headers = result.meta.fields ?? [];
+  const labelCol = headers.find((h) => h !== '順位' && h !== '緯度' && h !== '経度' && h !== '進行方向' && !h.includes('距離')) ?? '';
+  const dirCol = headers.find((h) => h === '進行方向') ?? '';
+  const distCol = headers.find((h) => h.includes('距離')) ?? '';
+
+  return result.data
+    .filter((row) => row['緯度'] && row['経度'])
+    .map((row) => ({
+      type: 'kyoten' as const,
       rank: parseInt(row['順位'], 10) || 0,
       label: labelCol ? (row[labelCol] ?? '') : '',
       direction: dirCol ? (row[dirCol] ?? '') : '',

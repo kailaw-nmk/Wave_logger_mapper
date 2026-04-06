@@ -5,8 +5,8 @@ import dynamic from 'next/dynamic';
 import CsvUploader from '@/components/CsvUploader';
 import type { CsvRow, AggregatedRow, NaRecurrencePoint, MultiCarrierPoint, MultiCarrierSummary } from '@/lib/csvParser';
 import { parseCsv, aggregateByLocation, toAggregatedRows, computeNaRecurrence, computeMultiCarrierCoverage } from '@/lib/csvParser';
-import type { AnalysisCluster, ReferencePoint } from '@/lib/analysisParser';
-import { detectCsvType, parseFutsuCsv, parseTeisokuCsv, parseReferenceCsv } from '@/lib/analysisParser';
+import type { AnalysisCluster, ReferencePoint, KyotenPoint } from '@/lib/analysisParser';
+import { detectCsvType, parseFutsuCsv, parseTeisokuCsv, parseReferenceCsv, parseKyotenCsv } from '@/lib/analysisParser';
 import type { MapBounds } from '@/components/MapView';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { METRIC_LABELS, DEFAULT_THRESHOLDS, syncGroupThresholds } from '@/lib/colorScale';
@@ -107,11 +107,14 @@ export default function HomePage() {
   const [analysisClusters, setAnalysisClusters] = useState<AnalysisCluster[]>([]);
   // 参考データ
   const [referencePoints, setReferencePoints] = useState<ReferencePoint[]>([]);
+  // 拠点データ
+  const [kyotenPoints, setKyotenPoints] = useState<KyotenPoint[]>([]);
   // レイヤー表示切替
   const [showMeasurementLayer, setShowMeasurementLayer] = useState(true);
   const [showAnalysisLayer, setShowAnalysisLayer] = useState(true);
   const [showReferenceLayer, setShowReferenceLayer] = useState(true);
   const [showReferenceCircle, setShowReferenceCircle] = useState(false);
+  const [showKyotenLayer, setShowKyotenLayer] = useState(true);
   const [metric, setMetric] = useState<Metric>('download_mbps');
 
   // カラー閾値（読み込み時にグループ内を同期）
@@ -161,8 +164,8 @@ export default function HomePage() {
   // 再現率フィルタ閾値(%)
   const [recurrenceMinPct, setRecurrenceMinPct] = useState(0);
   // ルート区間フィルタ
-  const [routeFrom, setRouteFrom] = useState<ReferencePoint | null>(null);
-  const [routeTo, setRouteTo] = useState<ReferencePoint | null>(null);
+  const [routeFrom, setRouteFrom] = useState<KyotenPoint | null>(null);
+  const [routeTo, setRouteTo] = useState<KyotenPoint | null>(null);
   const [routePolyline, setRoutePolyline] = useState<[number, number][] | null>(null);
   const [routeDistance, setRouteDistance] = useState(100);
   const [routeLoading, setRouteLoading] = useState(false);
@@ -377,6 +380,7 @@ export default function HomePage() {
       const newRows: CsvRow[] = [];
       const newClusters: AnalysisCluster[] = [];
       const newRefs: ReferencePoint[] = [];
+      const newKyoten: KyotenPoint[] = [];
       const newFileNames: string[] = [];
 
       for (const { text, fileName } of files) {
@@ -386,7 +390,7 @@ export default function HomePage() {
           continue;
         }
 
-        const csvType = detectCsvType(text);
+        const csvType = detectCsvType(text, fileName);
 
         if (csvType === 'futsu') {
           const clusters = parseFutsuCsv(text, fileName);
@@ -403,6 +407,14 @@ export default function HomePage() {
             continue;
           }
           newClusters.push(...clusters);
+          newFileNames.push(fileName);
+        } else if (csvType === 'kyoten') {
+          const pts = parseKyotenCsv(text, fileName);
+          if (pts.length === 0) {
+            alert(`「${fileName}」に有効な拠点データがありません`);
+            continue;
+          }
+          newKyoten.push(...pts);
           newFileNames.push(fileName);
         } else if (csvType === 'reference') {
           const refs = parseReferenceCsv(text, fileName);
@@ -432,6 +444,9 @@ export default function HomePage() {
       if (newRefs.length > 0) {
         setReferencePoints((prev) => [...prev, ...newRefs]);
       }
+      if (newKyoten.length > 0) {
+        setKyotenPoints((prev) => [...prev, ...newKyoten]);
+      }
       if (newFileNames.length > 0) {
         setLoadedFiles((prev) => [...prev, ...newFileNames]);
       }
@@ -443,6 +458,7 @@ export default function HomePage() {
     setRawRows((prev) => prev.filter((r) => r._sourceFile !== fileName));
     setAnalysisClusters((prev) => prev.filter((c) => c._sourceFile !== fileName));
     setReferencePoints((prev) => prev.filter((r) => r._sourceFile !== fileName));
+    setKyotenPoints((prev) => prev.filter((k) => k._sourceFile !== fileName));
     setLoadedFiles((prev) => prev.filter((f) => f !== fileName));
   }
 
@@ -495,7 +511,7 @@ export default function HomePage() {
     reader.readAsText(file);
   }, [rawRows.length]);
 
-  const hasData = data.length > 0 || analysisClusters.length > 0 || referencePoints.length > 0;
+  const hasData = data.length > 0 || analysisClusters.length > 0 || referencePoints.length > 0 || kyotenPoints.length > 0;
   const unit = metricUnit(metric);
   const filterStep = isPingMetric(metric) ? 10 : 5;
 
@@ -912,7 +928,7 @@ export default function HomePage() {
             </button>
 
             {/* レイヤー切替 */}
-            {(rawRows.length > 0 || analysisClusters.length > 0 || referencePoints.length > 0) && (
+            {(rawRows.length > 0 || analysisClusters.length > 0 || referencePoints.length > 0 || kyotenPoints.length > 0) && (
               <div style={{ display: 'flex', gap: 4, fontSize: 13 }}>
                 {rawRows.length > 0 && (
                   <button
@@ -970,24 +986,37 @@ export default function HomePage() {
                     )}
                   </>
                 )}
+                {kyotenPoints.length > 0 && (
+                  <button
+                    onClick={() => setShowKyotenLayer((v) => !v)}
+                    style={{
+                      padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                      border: showKyotenLayer ? '2px solid #10b981' : '1px solid #ccc',
+                      background: showKyotenLayer ? '#d1fae5' : '#fff',
+                      fontWeight: showKyotenLayer ? 600 : 400,
+                    }}
+                  >
+                    {showKyotenLayer ? '■' : '□'} 拠点データ ({kyotenPoints.length})
+                  </button>
+                )}
               </div>
             )}
 
             {/* ルート区間フィルタ */}
-            {referencePoints.length >= 2 && (
+            {kyotenPoints.length >= 2 && (
               <div style={{ display: 'flex', gap: 4, fontSize: 12, alignItems: 'center' }}>
                 <span style={{ color: '#666', fontWeight: 600 }}>区間:</span>
                 <select
                   value={routeFrom ? `${routeFrom.lat},${routeFrom.lon}` : ''}
                   onChange={(e) => {
                     if (!e.target.value) { setRouteFrom(null); return; }
-                    const pt = referencePoints.find((r) => `${r.lat},${r.lon}` === e.target.value);
+                    const pt = kyotenPoints.find((r) => `${r.lat},${r.lon}` === e.target.value);
                     setRouteFrom(pt ?? null);
                   }}
                   style={{ padding: '2px 4px', borderRadius: 4, border: '1px solid #ccc', fontSize: 12, maxWidth: 120 }}
                 >
                   <option value="">始点...</option>
-                  {referencePoints.map((r, i) => (
+                  {kyotenPoints.map((r, i) => (
                     <option key={`from-${i}`} value={`${r.lat},${r.lon}`}>{r.label || `#${r.rank}`}</option>
                   ))}
                 </select>
@@ -996,13 +1025,13 @@ export default function HomePage() {
                   value={routeTo ? `${routeTo.lat},${routeTo.lon}` : ''}
                   onChange={(e) => {
                     if (!e.target.value) { setRouteTo(null); return; }
-                    const pt = referencePoints.find((r) => `${r.lat},${r.lon}` === e.target.value);
+                    const pt = kyotenPoints.find((r) => `${r.lat},${r.lon}` === e.target.value);
                     setRouteTo(pt ?? null);
                   }}
                   style={{ padding: '2px 4px', borderRadius: 4, border: '1px solid #ccc', fontSize: 12, maxWidth: 120 }}
                 >
                   <option value="">終点...</option>
-                  {referencePoints.map((r, i) => (
+                  {kyotenPoints.map((r, i) => (
                     <option key={`to-${i}`} value={`${r.lat},${r.lon}`}>{r.label || `#${r.rank}`}</option>
                   ))}
                 </select>
@@ -1073,14 +1102,15 @@ export default function HomePage() {
                 const measureCount = rawRows.filter((r) => r._sourceFile === f).length;
                 const clusterCount = analysisClusters.filter((c) => c._sourceFile === f).length;
                 const refCount = referencePoints.filter((r) => r._sourceFile === f).length;
-                const label = refCount > 0 ? `${refCount}地点` : clusterCount > 0 ? `${clusterCount}クラスタ` : `${measureCount}件`;
+                const kyotenCount = kyotenPoints.filter((k) => k._sourceFile === f).length;
+                const label = kyotenCount > 0 ? `${kyotenCount}拠点` : refCount > 0 ? `${refCount}地点` : clusterCount > 0 ? `${clusterCount}クラスタ` : `${measureCount}件`;
                 return (
                   <span
                     key={f}
                     style={{
                       fontSize: 12,
                       color: '#555',
-                      background: refCount > 0 ? '#e0f2fe' : clusterCount > 0 ? '#fef3c7' : '#f0f0f0',
+                      background: kyotenCount > 0 ? '#d1fae5' : refCount > 0 ? '#e0f2fe' : clusterCount > 0 ? '#fef3c7' : '#f0f0f0',
                       padding: '2px 8px',
                       borderRadius: 4,
                       display: 'inline-flex',
@@ -1191,6 +1221,8 @@ export default function HomePage() {
                 referencePoints={referencePoints}
                 showReferenceLayer={showReferenceLayer}
                 showReferenceCircle={showReferenceCircle}
+                kyotenPoints={kyotenPoints}
+                showKyotenLayer={showKyotenLayer}
                 routePolyline={routePolyline}
                 markerStyles={markerStyles}
               />

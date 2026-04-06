@@ -35,6 +35,8 @@ interface LegendProps {
   analysisFutsuCount?: number;
   /** 参考データポイント数 */
   referencePointCount?: number;
+  /** 拠点データポイント数 */
+  kyotenPointCount?: number;
 }
 
 /** 凡例用ミニSVG（16×16）をReact要素で描画 */
@@ -81,7 +83,7 @@ function MiniShapeSvg({ shape, borderColor }: { shape: MarkerShape; borderColor:
   );
 }
 
-export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false, naIsolatedCount = 0, naConsecutiveCount = 0, showNaRecurrence = false, naRecurrenceCount = 0, showMultiCarrier = false, multiCarrierSummary, analysisClusterCount = 0, analysisFutsuCount = 0, referencePointCount = 0 }: LegendProps) {
+export default function Legend({ metric, pointCount, fileCount, groupMode, groupStyles, thresholds, naPointCount = 0, showNaPolyline = false, naIsolatedCount = 0, naConsecutiveCount = 0, showNaRecurrence = false, naRecurrenceCount = 0, showMultiCarrier = false, multiCarrierSummary, analysisClusterCount = 0, analysisFutsuCount = 0, referencePointCount = 0, kyotenPointCount = 0 }: LegendProps) {
   const [collapsed, setCollapsed] = useState(false);
   const entries = getLegendEntries(metric, thresholds);
 
@@ -215,6 +217,11 @@ export default function Legend({ metric, pointCount, fileCount, groupMode, group
             {referencePointCount > 0 && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#0ea5e9' }} /> 参考データ ({referencePointCount})
+              </span>
+            )}
+            {kyotenPointCount > 0 && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#10b981' }} /> 拠点データ ({kyotenPointCount})
               </span>
             )}
           </div>
