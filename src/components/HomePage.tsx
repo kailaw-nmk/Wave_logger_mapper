@@ -471,8 +471,10 @@ export default function HomePage() {
       showAnalysisLayer, showMeasurementLayer, showReferenceLayer,
       markerStyles,
       showIsolatedNa, showConsecutiveNa, showNaRecurrence, showMultiCarrier, recurrenceRadius, multiCarrierRadius,
+      kyotenPoints, showKyotenLayer, showReferenceCircle,
+      showNaCircle, naCircleRadius, naOnly, aggregate, recurrenceMinPct, multiCarrierAllNaOnly, routeDistance,
     });
-  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, referencePoints, showAnalysisLayer, showMeasurementLayer, showReferenceLayer, markerStyles, showIsolatedNa, showConsecutiveNa, showNaRecurrence, showMultiCarrier, recurrenceRadius, multiCarrierRadius]);
+  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, referencePoints, showAnalysisLayer, showMeasurementLayer, showReferenceLayer, markerStyles, showIsolatedNa, showConsecutiveNa, showNaRecurrence, showMultiCarrier, recurrenceRadius, multiCarrierRadius, kyotenPoints, showKyotenLayer, showReferenceCircle, showNaCircle, naCircleRadius, naOnly, aggregate, recurrenceMinPct, multiCarrierAllNaOnly, routeDistance]);
 
   const handleImport = useCallback((file: File) => {
     const reader = new FileReader();
@@ -504,6 +506,16 @@ export default function HomePage() {
         setShowMultiCarrier(project.showMultiCarrier ?? false);
         setRecurrenceRadius(project.recurrenceRadius ?? 50);
         setMultiCarrierRadius(project.multiCarrierRadius ?? 50);
+        setKyotenPoints(project.kyotenPoints ?? []);
+        setShowKyotenLayer(project.showKyotenLayer ?? true);
+        setShowReferenceCircle(project.showReferenceCircle ?? false);
+        setShowNaCircle(project.showNaCircle ?? false);
+        setNaCircleRadius(project.naCircleRadius ?? 50);
+        setNaOnly(project.naOnly ?? false);
+        setAggregate(project.aggregate ?? true);
+        setRecurrenceMinPct(project.recurrenceMinPct ?? 0);
+        setMultiCarrierAllNaOnly(project.multiCarrierAllNaOnly ?? false);
+        setRouteDistance(project.routeDistance ?? 100);
       } catch (err) {
         alert(err instanceof Error ? err.message : 'プロジェクトファイルの読み込みに失敗しました。');
       }

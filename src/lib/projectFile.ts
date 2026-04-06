@@ -2,7 +2,7 @@ import type { CsvRow } from '@/lib/csvParser';
 import type { Metric, CustomThresholds } from '@/lib/colorScale';
 import { METRIC_LABELS, DEFAULT_THRESHOLDS } from '@/lib/colorScale';
 import type { GroupMode } from '@/lib/groupStyle';
-import type { AnalysisCluster, ReferencePoint } from '@/lib/analysisParser';
+import type { AnalysisCluster, ReferencePoint, KyotenPoint } from '@/lib/analysisParser';
 import type { MarkerStyles } from '@/lib/markerStyle';
 import { DEFAULT_MARKER_STYLES, parseMarkerStyles } from '@/lib/markerStyle';
 
@@ -39,6 +39,17 @@ export interface WlmProjectFile {
   recurrenceRadius?: number;
   /** マルチキャリア比較半径(m) */
   multiCarrierRadius?: number;
+  /** 拠点データ */
+  kyotenPoints?: KyotenPoint[];
+  showKyotenLayer?: boolean;
+  showReferenceCircle?: boolean;
+  showNaCircle?: boolean;
+  naCircleRadius?: number;
+  naOnly?: boolean;
+  aggregate?: boolean;
+  recurrenceMinPct?: number;
+  multiCarrierAllNaOnly?: boolean;
+  routeDistance?: number;
 }
 
 /** エクスポート用のstate */
@@ -66,6 +77,16 @@ export interface ProjectState {
   showMultiCarrier?: boolean;
   recurrenceRadius?: number;
   multiCarrierRadius?: number;
+  kyotenPoints?: KyotenPoint[];
+  showKyotenLayer?: boolean;
+  showReferenceCircle?: boolean;
+  showNaCircle?: boolean;
+  naCircleRadius?: number;
+  naOnly?: boolean;
+  aggregate?: boolean;
+  recurrenceMinPct?: number;
+  multiCarrierAllNaOnly?: boolean;
+  routeDistance?: number;
 }
 
 /** stateからJSON文字列を生成する */
@@ -153,6 +174,16 @@ export function validateAndParseProject(json: string): WlmProjectFile {
     showMultiCarrier: typeof obj.showMultiCarrier === 'boolean' ? obj.showMultiCarrier : false,
     recurrenceRadius: typeof obj.recurrenceRadius === 'number' && obj.recurrenceRadius >= 0 ? obj.recurrenceRadius : 50,
     multiCarrierRadius: typeof obj.multiCarrierRadius === 'number' && obj.multiCarrierRadius >= 0 ? obj.multiCarrierRadius : 50,
+    kyotenPoints: Array.isArray(obj.kyotenPoints) ? obj.kyotenPoints as KyotenPoint[] : [],
+    showKyotenLayer: typeof obj.showKyotenLayer === 'boolean' ? obj.showKyotenLayer : true,
+    showReferenceCircle: typeof obj.showReferenceCircle === 'boolean' ? obj.showReferenceCircle : false,
+    showNaCircle: typeof obj.showNaCircle === 'boolean' ? obj.showNaCircle : false,
+    naCircleRadius: typeof obj.naCircleRadius === 'number' && obj.naCircleRadius >= 0 ? obj.naCircleRadius : 50,
+    naOnly: typeof obj.naOnly === 'boolean' ? obj.naOnly : false,
+    aggregate: typeof obj.aggregate === 'boolean' ? obj.aggregate : true,
+    recurrenceMinPct: typeof obj.recurrenceMinPct === 'number' ? obj.recurrenceMinPct : 0,
+    multiCarrierAllNaOnly: typeof obj.multiCarrierAllNaOnly === 'boolean' ? obj.multiCarrierAllNaOnly : false,
+    routeDistance: typeof obj.routeDistance === 'number' && obj.routeDistance >= 0 ? obj.routeDistance : 100,
   };
 
   return result;
