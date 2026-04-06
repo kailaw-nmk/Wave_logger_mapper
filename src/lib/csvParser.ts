@@ -135,6 +135,15 @@ export function toAggregatedRows(rows: CsvRow[]): AggregatedRow[] {
   }));
 }
 
+/** Haversine距離（メートル） */
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 /** 不通再現率の地点データ */
 export interface NaRecurrencePoint {
   latitude: number;
@@ -147,65 +156,151 @@ export interface NaRecurrencePoint {
   totalRuns: number;
   /** 運行別の不通/正常詳細 */
   runDetails: { file: string; isNa: boolean }[];
+  /** 表示用の半径(m) — 0の場合はポイント表示 */
+  radius: number;
+  /** クラスタ内の測定点数 */
+  pointCount: number;
 }
 
-/** 地点ごとの不通再現率を算出する（運行=ファイル単位） */
+/** 地点ごとの不通再現率を算出する（運行=ファイル単位、半径指定でクラスタリング） */
 export function computeNaRecurrence(
   rows: CsvRow[],
   naCheckFn: (row: CsvRow) => boolean,
+  radiusM: number = 0,
 ): NaRecurrencePoint[] {
-  // 地点キー → { 運行ファイル → その運行の行リスト }
-  const locationGroups = new Map<string, { lat: number; lng: number; runs: Map<string, CsvRow[]> }>();
+  if (radiusM > 0) {
+    return computeNaRecurrenceWithRadius(rows, naCheckFn, radiusM);
+  }
 
+  // 従来の5桁グループ化（radiusM=0）
+  const locationGroups = new Map<string, { lat: number; lng: number; rows: CsvRow[] }>();
   for (const row of rows) {
     const locKey = `${row.latitude.toFixed(5)},${row.longitude.toFixed(5)}`;
     let loc = locationGroups.get(locKey);
     if (!loc) {
-      loc = { lat: row.latitude, lng: row.longitude, runs: new Map() };
+      loc = { lat: row.latitude, lng: row.longitude, rows: [] };
       locationGroups.set(locKey, loc);
     }
-    const file = row._sourceFile;
-    let runRows = loc.runs.get(file);
+    loc.rows.push(row);
+  }
+
+  const result: NaRecurrencePoint[] = [];
+  for (const loc of locationGroups.values()) {
+    const pt = computeRecurrenceForRows(loc.rows, naCheckFn, loc.lat, loc.lng, 0);
+    if (pt) result.push(pt);
+  }
+  return result;
+}
+
+/** 半径指定クラスタリングで再現率を算出 */
+function computeNaRecurrenceWithRadius(
+  rows: CsvRow[],
+  naCheckFn: (row: CsvRow) => boolean,
+  radiusM: number,
+): NaRecurrencePoint[] {
+  // 全測定点のユニーク座標を抽出
+  const uniqueCoords: { lat: number; lng: number; rows: CsvRow[] }[] = [];
+  const coordMap = new Map<string, { lat: number; lng: number; rows: CsvRow[] }>();
+  for (const row of rows) {
+    const key = `${row.latitude.toFixed(5)},${row.longitude.toFixed(5)}`;
+    let entry = coordMap.get(key);
+    if (!entry) {
+      entry = { lat: row.latitude, lng: row.longitude, rows: [] };
+      coordMap.set(key, entry);
+      uniqueCoords.push(entry);
+    }
+    entry.rows.push(row);
+  }
+
+  // グリーディクラスタリング
+  const assigned = new Set<number>();
+  const clusters: { centerLat: number; centerLng: number; members: typeof uniqueCoords }[] = [];
+
+  for (let i = 0; i < uniqueCoords.length; i++) {
+    if (assigned.has(i)) continue;
+    assigned.add(i);
+
+    const members = [uniqueCoords[i]];
+    // 半径内の点を収集
+    for (let j = i + 1; j < uniqueCoords.length; j++) {
+      if (assigned.has(j)) continue;
+      const dist = haversineM(uniqueCoords[i].lat, uniqueCoords[i].lng, uniqueCoords[j].lat, uniqueCoords[j].lng);
+      if (dist <= radiusM) {
+        assigned.add(j);
+        members.push(uniqueCoords[j]);
+      }
+    }
+
+    // 重心を計算
+    let totalLat = 0, totalLng = 0, totalCount = 0;
+    for (const m of members) {
+      const w = m.rows.length;
+      totalLat += m.lat * w;
+      totalLng += m.lng * w;
+      totalCount += w;
+    }
+    clusters.push({
+      centerLat: totalLat / totalCount,
+      centerLng: totalLng / totalCount,
+      members,
+    });
+  }
+
+  // 各クラスタで再現率を算出
+  const result: NaRecurrencePoint[] = [];
+  for (const cluster of clusters) {
+    const allRows = cluster.members.flatMap((m) => m.rows);
+    const pt = computeRecurrenceForRows(allRows, naCheckFn, cluster.centerLat, cluster.centerLng, radiusM);
+    if (pt) result.push(pt);
+  }
+  return result;
+}
+
+/** 行リストから再現率ポイントを算出（共通ロジック） */
+function computeRecurrenceForRows(
+  rows: CsvRow[],
+  naCheckFn: (row: CsvRow) => boolean,
+  lat: number,
+  lng: number,
+  radius: number,
+): NaRecurrencePoint | null {
+  // 運行(ファイル)単位でグループ化
+  const runs = new Map<string, CsvRow[]>();
+  for (const row of rows) {
+    let runRows = runs.get(row._sourceFile);
     if (!runRows) {
       runRows = [];
-      loc.runs.set(file, runRows);
+      runs.set(row._sourceFile, runRows);
     }
     runRows.push(row);
   }
 
-  const result: NaRecurrencePoint[] = [];
+  const totalRuns = runs.size;
+  if (totalRuns < 1) return null;
 
-  for (const loc of locationGroups.values()) {
-    const totalRuns = loc.runs.size;
-    if (totalRuns < 1) continue;
+  const runDetails: { file: string; isNa: boolean }[] = [];
+  let naRuns = 0;
 
-    const runDetails: { file: string; isNa: boolean }[] = [];
-    let naRuns = 0;
-
-    for (const [file, runRows] of loc.runs) {
-      // その運行の全測定点がNAなら不通とみなす
-      const isNa = runRows.every(naCheckFn);
-      if (isNa) naRuns++;
-      runDetails.push({ file, isNa });
-    }
-
-    // 再現率0%（全運行で正常）の地点は除外
-    if (naRuns === 0) continue;
-
-    // ファイル名でソート
-    runDetails.sort((a, b) => a.file.localeCompare(b.file));
-
-    result.push({
-      latitude: loc.lat,
-      longitude: loc.lng,
-      recurrenceRate: (naRuns / totalRuns) * 100,
-      naRuns,
-      totalRuns,
-      runDetails,
-    });
+  for (const [file, runRows] of runs) {
+    const isNa = runRows.every(naCheckFn);
+    if (isNa) naRuns++;
+    runDetails.push({ file, isNa });
   }
 
-  return result;
+  if (naRuns === 0) return null;
+
+  runDetails.sort((a, b) => a.file.localeCompare(b.file));
+
+  return {
+    latitude: lat,
+    longitude: lng,
+    recurrenceRate: (naRuns / totalRuns) * 100,
+    naRuns,
+    totalRuns,
+    runDetails,
+    radius,
+    pointCount: rows.length,
+  };
 }
 
 /** null を除外して平均を計算する */

@@ -148,6 +148,8 @@ export default function HomePage() {
   const [showNaRecurrence, setShowNaRecurrence] = useState(false);
   // マルチキャリア比較表示
   const [showMultiCarrier, setShowMultiCarrier] = useState(false);
+  // 再現率クラスタリング半径(m)
+  const [recurrenceRadius, setRecurrenceRadius] = useState(50);
   // 集約モード: true=近傍点を集約, false=全測定点を個別表示
   const [aggregate, setAggregate] = useState(true);
   // キャリアフィルタ: 選択中のキャリア（空=全表示）
@@ -273,8 +275,8 @@ export default function HomePage() {
   const naRecurrencePoints = useMemo((): NaRecurrencePoint[] => {
     if (naFilter === 'none' || !showNaRecurrence) return [];
     const fn = naFilter === 'tcp' ? isTcpNa : naFilter === 'udp' ? isUdpNa : isBothNa;
-    return computeNaRecurrence(carrierFilteredRows, fn);
-  }, [carrierFilteredRows, naFilter, showNaRecurrence]);
+    return computeNaRecurrence(carrierFilteredRows, fn, recurrenceRadius);
+  }, [carrierFilteredRows, naFilter, showNaRecurrence, recurrenceRadius]);
 
   // マルチキャリア比較（キャリアフィルタ無視で全キャリアの生データ���使う）
   const { multiCarrierPoints, multiCarrierSummary } = useMemo((): {
@@ -395,9 +397,9 @@ export default function HomePage() {
       analysisClusters, referencePoints,
       showAnalysisLayer, showMeasurementLayer, showReferenceLayer,
       markerStyles,
-      showIsolatedNa, showConsecutiveNa, showNaRecurrence, showMultiCarrier,
+      showIsolatedNa, showConsecutiveNa, showNaRecurrence, showMultiCarrier, recurrenceRadius,
     });
-  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, referencePoints, showAnalysisLayer, showMeasurementLayer, showReferenceLayer, markerStyles, showIsolatedNa, showConsecutiveNa, showNaRecurrence, showMultiCarrier]);
+  }, [rawRows, loadedFiles, metric, customThresholds, filterEnabled, filterMax, naFilter, groupMode, showChart, binSize, mapHeightPercent, analysisClusters, referencePoints, showAnalysisLayer, showMeasurementLayer, showReferenceLayer, markerStyles, showIsolatedNa, showConsecutiveNa, showNaRecurrence, showMultiCarrier, recurrenceRadius]);
 
   const handleImport = useCallback((file: File) => {
     const reader = new FileReader();
@@ -427,6 +429,7 @@ export default function HomePage() {
         setShowConsecutiveNa(project.showConsecutiveNa ?? true);
         setShowNaRecurrence(project.showNaRecurrence ?? false);
         setShowMultiCarrier(project.showMultiCarrier ?? false);
+        setRecurrenceRadius(project.recurrenceRadius ?? 50);
       } catch (err) {
         alert(err instanceof Error ? err.message : 'プロジェクトファイルの読み込みに失敗しました。');
       }
@@ -636,6 +639,26 @@ export default function HomePage() {
                     />
                     再現率
                   </label>
+                  {showNaRecurrence && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, color: '#666' }}>
+                      半径:
+                      <input
+                        type="number"
+                        value={recurrenceRadius}
+                        onChange={(e) => setRecurrenceRadius(Math.max(0, Number(e.target.value)))}
+                        min={0}
+                        step={10}
+                        style={{
+                          width: 52,
+                          padding: '2px 4px',
+                          borderRadius: 4,
+                          border: '1px solid #ccc',
+                          fontSize: 12,
+                        }}
+                      />
+                      m
+                    </label>
+                  )}
                   {availableCarriers.length >= 2 && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
                       <input

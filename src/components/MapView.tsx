@@ -444,6 +444,11 @@ function buildRecurrencePopup(point: NaRecurrencePoint) {
         <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
           不通再現率: {point.recurrenceRate.toFixed(0)}% ({point.naRuns}/{point.totalRuns}回)
         </div>
+        {point.radius > 0 && (
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>
+            半径{point.radius}m / {point.pointCount}測定点
+          </div>
+        )}
         <hr style={{ margin: '4px 0', border: 'none', borderTop: '1px solid #ddd' }} />
         {point.runDetails.map((d) => (
           <div key={d.file} style={{ display: 'flex', gap: 6, padding: '1px 0' }}>
@@ -657,6 +662,25 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         {/* 不通再現率マーカー */}
         {showMeasurementLayer && showNaRecurrence && naRecurrencePoints.map((pt, i) => {
           const color = getRecurrenceColor(pt.recurrenceRate);
+          if (pt.radius > 0) {
+            // 半径指定あり → 実距離Circleで表示
+            return (
+              <Circle
+                key={`recur-${i}`}
+                center={[pt.latitude, pt.longitude]}
+                radius={pt.radius}
+                pathOptions={{
+                  color,
+                  fillColor: color,
+                  fillOpacity: 0.3,
+                  weight: 2,
+                }}
+              >
+                {buildRecurrencePopup(pt)}
+              </Circle>
+            );
+          }
+          // 半径0 → 従来のCircleMarker
           return (
             <CircleMarker
               key={`recur-${i}`}
