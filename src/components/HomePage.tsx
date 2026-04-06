@@ -150,6 +150,8 @@ export default function HomePage() {
   const [showMultiCarrier, setShowMultiCarrier] = useState(false);
   // 再現率クラスタリング半径(m)
   const [recurrenceRadius, setRecurrenceRadius] = useState(50);
+  // 再現率フィルタ閾値(%)
+  const [recurrenceMinPct, setRecurrenceMinPct] = useState(0);
   // 集約モード: true=近傍点を集約, false=全測定点を個別表示
   const [aggregate, setAggregate] = useState(true);
   // キャリアフィルタ: 選択中のキャリア（空=全表示）
@@ -272,11 +274,17 @@ export default function HomePage() {
   }, [isolatedNaPoints, consecutiveNaPoints, showIsolatedNa, showConsecutiveNa]);
 
   // 不通再現率（地点ごとの不通頻度）
-  const naRecurrencePoints = useMemo((): NaRecurrencePoint[] => {
+  const naRecurrencePointsAll = useMemo((): NaRecurrencePoint[] => {
     if (naFilter === 'none' || !showNaRecurrence) return [];
     const fn = naFilter === 'tcp' ? isTcpNa : naFilter === 'udp' ? isUdpNa : isBothNa;
     return computeNaRecurrence(carrierFilteredRows, fn, recurrenceRadius);
   }, [carrierFilteredRows, naFilter, showNaRecurrence, recurrenceRadius]);
+
+  // 再現率フィルタ適用
+  const naRecurrencePoints = useMemo((): NaRecurrencePoint[] => {
+    if (recurrenceMinPct <= 0) return naRecurrencePointsAll;
+    return naRecurrencePointsAll.filter((pt) => pt.recurrenceRate >= recurrenceMinPct);
+  }, [naRecurrencePointsAll, recurrenceMinPct]);
 
   // マルチキャリア比較（キャリアフィルタ無視で全キャリアの生データ���使う）
   const { multiCarrierPoints, multiCarrierSummary } = useMemo((): {
@@ -640,24 +648,50 @@ export default function HomePage() {
                     再現率
                   </label>
                   {showNaRecurrence && (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, color: '#666' }}>
-                      半径:
-                      <input
-                        type="number"
-                        value={recurrenceRadius}
-                        onChange={(e) => setRecurrenceRadius(Math.max(0, Number(e.target.value)))}
-                        min={0}
-                        step={10}
-                        style={{
-                          width: 52,
-                          padding: '2px 4px',
-                          borderRadius: 4,
-                          border: '1px solid #ccc',
-                          fontSize: 12,
-                        }}
-                      />
-                      m
-                    </label>
+                    <>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, color: '#666' }}>
+                        半径:
+                        <input
+                          type="number"
+                          value={recurrenceRadius}
+                          onChange={(e) => setRecurrenceRadius(Math.max(0, Number(e.target.value)))}
+                          min={0}
+                          step={10}
+                          style={{
+                            width: 52,
+                            padding: '2px 4px',
+                            borderRadius: 4,
+                            border: '1px solid #ccc',
+                            fontSize: 12,
+                          }}
+                        />
+                        m
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, color: '#666' }}>
+                        ≥
+                        <input
+                          type="number"
+                          value={recurrenceMinPct}
+                          onChange={(e) => setRecurrenceMinPct(Math.min(100, Math.max(0, Number(e.target.value))))}
+                          min={0}
+                          max={100}
+                          step={10}
+                          style={{
+                            width: 46,
+                            padding: '2px 4px',
+                            borderRadius: 4,
+                            border: '1px solid #ccc',
+                            fontSize: 12,
+                          }}
+                        />
+                        %
+                      </label>
+                      {recurrenceMinPct > 0 && (
+                        <span style={{ fontSize: 11, background: '#e0e7ff', color: '#3b4fc4', padding: '1px 6px', borderRadius: 8 }}>
+                          {naRecurrencePoints.length} / {naRecurrencePointsAll.length} 件
+                        </span>
+                      )}
+                    </>
                   )}
                   {availableCarriers.length >= 2 && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
