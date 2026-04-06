@@ -599,8 +599,8 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {/* 軌跡の線（ファイル+車両ごと） */}
-        {showMeasurementLayer && polylineGroups.map((group, i) => {
+        {/* 軌跡の線（ファイル+車両ごと） — 再現率・マルチ比較モード時は非表示 */}
+        {showMeasurementLayer && !showNaRecurrence && !showMultiCarrier && polylineGroups.map((group, i) => {
           if (group.coords.length <= 1) return null;
           // グループモード時はポリラインの色をグループ色にする
           let lineColor = '#6b7280';
@@ -624,7 +624,7 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         })}
 
         {/* 不通区間ポリライン（赤い実線） */}
-        {showMeasurementLayer && naPolylineSegments.map((seg, i) => (
+        {showMeasurementLayer && !showNaRecurrence && !showMultiCarrier && naPolylineSegments.map((seg, i) => (
           <Polyline
             key={`na-polyline-${i}`}
             positions={seg.coords}
@@ -718,15 +718,15 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           );
         })}
 
-        {/* 連続不通ポイント（従来のスタイル） */}
-        {showMeasurementLayer && consecutiveNaPoints.map((row, i) => {
+        {/* 連続不通ポイント（従来のスタイル） — 再現率・マルチ比較モード時は非表示 */}
+        {showMeasurementLayer && !showNaRecurrence && !showMultiCarrier && consecutiveNaPoints.map((row, i) => {
           const naStyleKey = naFilter === 'tcp' ? 'naTcp' as const : naFilter === 'udp' ? 'naUdp' as const : 'naBoth' as const;
           const naStyle = markerStyles[naStyleKey];
           return renderMarker(row, i, 'na-cons', naStyle.color || '#6b7280', groupMode, groupStyles, onPointClick, naStyle);
         })}
 
-        {/* 単点不通ポイント（ダイヤモンド形、小さめ） */}
-        {showMeasurementLayer && isolatedNaPoints.map((row, i) => {
+        {/* 単点不通ポイント（ダイヤモンド形、小さめ） — 再現率・マルチ比較モード時は非表示 */}
+        {showMeasurementLayer && !showNaRecurrence && !showMultiCarrier && isolatedNaPoints.map((row, i) => {
           const naStyleKey = naFilter === 'tcp' ? 'naTcp' as const : naFilter === 'udp' ? 'naUdp' as const : 'naBoth' as const;
           const baseStyle = markerStyles[naStyleKey];
           const isolatedStyle = { ...baseStyle, radius: Math.max(5, baseStyle.radius - 2), shape: 'diamond' as MarkerShape };
