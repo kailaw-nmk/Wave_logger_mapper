@@ -276,7 +276,8 @@ function computeRecurrenceForRows(
   }
 
   const totalRuns = runs.size;
-  if (totalRuns < 1) return null;
+  // 運行が1件のみの地点は再現率を算出しない（複数運行の比較が必要）
+  if (totalRuns < 2) return null;
 
   const runDetails: { file: string; isNa: boolean }[] = [];
   let naRuns = 0;
