@@ -110,6 +110,7 @@ export default function HomePage() {
   const [showMeasurementLayer, setShowMeasurementLayer] = useState(true);
   const [showAnalysisLayer, setShowAnalysisLayer] = useState(true);
   const [showReferenceLayer, setShowReferenceLayer] = useState(true);
+  const [showReferenceCircle, setShowReferenceCircle] = useState(false);
   const [metric, setMetric] = useState<Metric>('download_mbps');
 
   // カラー閾値（読み込み時にグループ内を同期）
@@ -774,17 +775,34 @@ export default function HomePage() {
                   </button>
                 )}
                 {referencePoints.length > 0 && (
-                  <button
-                    onClick={() => setShowReferenceLayer((v) => !v)}
-                    style={{
-                      padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
-                      border: showReferenceLayer ? '2px solid #0ea5e9' : '1px solid #ccc',
-                      background: showReferenceLayer ? '#e0f2fe' : '#fff',
-                      fontWeight: showReferenceLayer ? 600 : 400,
-                    }}
-                  >
-                    {showReferenceLayer ? '■' : '□'} 参考データ ({referencePoints.length})
-                  </button>
+                  <>
+                    <button
+                      onClick={() => setShowReferenceLayer((v) => !v)}
+                      style={{
+                        padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                        border: showReferenceLayer ? '2px solid #0ea5e9' : '1px solid #ccc',
+                        background: showReferenceLayer ? '#e0f2fe' : '#fff',
+                        fontWeight: showReferenceLayer ? 600 : 400,
+                      }}
+                    >
+                      {showReferenceLayer ? '■' : '□'} 参考データ ({referencePoints.length})
+                    </button>
+                    {showReferenceLayer && (
+                      <button
+                        onClick={() => setShowReferenceCircle((v) => !v)}
+                        style={{
+                          padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                          border: showReferenceCircle ? '2px solid #0ea5e9' : '1px solid #ccc',
+                          background: showReferenceCircle ? '#e0f2fe' : '#fff',
+                          fontWeight: showReferenceCircle ? 600 : 400,
+                          fontSize: 12,
+                        }}
+                        title="参考データ中心に時速80km×10秒(222m)の範囲を表示"
+                      >
+                        ◎ サークル
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -942,6 +960,7 @@ export default function HomePage() {
                 showMeasurementLayer={showMeasurementLayer}
                 referencePoints={referencePoints}
                 showReferenceLayer={showReferenceLayer}
+                showReferenceCircle={showReferenceCircle}
                 markerStyles={markerStyles}
               />
               {/* フィルタ適用中バッジ */}

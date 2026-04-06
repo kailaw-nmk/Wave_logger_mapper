@@ -68,6 +68,8 @@ interface MapViewProps {
   referencePoints?: ReferencePoint[];
   /** 参考データレイヤー表示 */
   showReferenceLayer?: boolean;
+  /** 参考データサークル表示 */
+  showReferenceCircle?: boolean;
   /** マーカースタイル設定 */
   markerStyles?: MarkerStyles;
 }
@@ -524,7 +526,7 @@ function buildReferencePopup(point: ReferencePoint) {
   );
 }
 
-export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, naRecurrencePoints = [], showNaRecurrence = false, multiCarrierPoints = [], multiCarrierSummary, showMultiCarrier = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
+export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, naRecurrencePoints = [], showNaRecurrence = false, multiCarrierPoints = [], multiCarrierSummary, showMultiCarrier = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, showReferenceCircle = false, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
   const polylineGroups = buildPolylineGroups(rawRows);
 
   // 不通区間ポリラインセグメント（連続不通非表示時は生成しない）
@@ -748,6 +750,22 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
             </React.Fragment>
           );
         })}
+
+        {/* 参考データサークル（時速80km×10秒≒222m） */}
+        {showReferenceLayer && showReferenceCircle && referencePoints.map((point, i) => (
+          <Circle
+            key={`ref-circle-${i}`}
+            center={[point.lat, point.lon]}
+            radius={222}
+            pathOptions={{
+              color: '#0ea5e9',
+              fillColor: '#0ea5e9',
+              fillOpacity: 0.08,
+              weight: 1.5,
+              dashArray: '6 4',
+            }}
+          />
+        ))}
 
         {/* 参考データマーカー */}
         {showReferenceLayer && referencePoints.map((point, i) => {
