@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useCallback, useEffect } from 'react';
+import React, { useMemo, useCallback, useEffect, useState } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Circle, Marker, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
 import DraggablePopup from './DraggablePopup';
 import type { LatLngBounds } from 'leaflet';
@@ -23,6 +23,41 @@ export interface MapBounds {
   west: number;
   east: number;
   containerWidth: number;
+}
+
+/** 配列の最小・最大を求める（巨大配列で Math.min(...arr) がスタック超過するのを回避） */
+function minMax(values: number[]): [number, number] {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const v of values) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  return [min, max];
+}
+
+/** ビューポートカリング: 表示範囲（+余白）内の点だけを [行, 元インデックス] で返す */
+function cullByBounds<T extends { latitude: number; longitude: number }>(
+  rows: T[],
+  bounds: MapBounds | null,
+): [T, number][] {
+  // 範囲未確定時は全件（元インデックス付き）
+  if (!bounds) return rows.map((r, i) => [r, i] as [T, number]);
+  // パン時の端欠けを抑えるため、表示範囲の縦横を各辺50%拡張する
+  const padLat = (bounds.north - bounds.south) * 0.5;
+  const padLng = (bounds.east - bounds.west) * 0.5;
+  const south = bounds.south - padLat;
+  const north = bounds.north + padLat;
+  const west = bounds.west - padLng;
+  const east = bounds.east + padLng;
+  const out: [T, number][] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (r.latitude >= south && r.latitude <= north && r.longitude >= west && r.longitude <= east) {
+      out.push([r, i]);
+    }
+  }
+  return out;
 }
 
 interface MapViewProps {
@@ -90,12 +125,12 @@ function FitBounds({ data }: { data: AggregatedRow[] }) {
 
   useEffect(() => {
     if (data.length === 0) return;
-    const lats = data.map((r) => r.latitude);
-    const lngs = data.map((r) => r.longitude);
+    const [minLat, maxLat] = minMax(data.map((r) => r.latitude));
+    const [minLng, maxLng] = minMax(data.map((r) => r.longitude));
     const L = require('leaflet') as typeof import('leaflet');
     const bounds = L.latLngBounds(
-      [Math.min(...lats), Math.min(...lngs)],
-      [Math.max(...lats), Math.max(...lngs)],
+      [minLat, minLng],
+      [maxLat, maxLng],
     );
     map.fitBounds(bounds, { padding: [30, 30] });
   }, [data, map]);
@@ -125,6 +160,39 @@ function BoundsWatcher({ onChange }: { onChange: (bounds: MapBounds) => void }) 
 
   useMapEvents({
     moveend() {
+      onChange(toBounds());
+    },
+    resize() {
+      onChange(toBounds());
+    },
+  });
+  return null;
+}
+
+/** ビューポートカリング用に現在の表示範囲を内部stateへ反映する（moveend/zoomend/resize/初回） */
+function ViewBoundsTracker({ onChange }: { onChange: (bounds: MapBounds) => void }) {
+  const map = useMap();
+
+  const toBounds = useCallback((): MapBounds => {
+    const b = map.getBounds();
+    return {
+      south: b.getSouth(),
+      north: b.getNorth(),
+      west: b.getWest(),
+      east: b.getEast(),
+      containerWidth: map.getSize().x,
+    };
+  }, [map]);
+
+  useEffect(() => {
+    onChange(toBounds());
+  }, [map, onChange, toBounds]);
+
+  useMapEvents({
+    moveend() {
+      onChange(toBounds());
+    },
+    zoomend() {
       onChange(toBounds());
     },
     resize() {
@@ -542,7 +610,7 @@ function buildReferencePopup(point: ReferencePoint) {
 }
 
 export default function MapView({ data, metric, rawRows, fileCount, highlightLngRange, onPointClick, onBoundsChange, groupMode = 'none', groupStyles, thresholds, naPoints = [], naFilter = 'none', naOnly = false, showNaCircle = false, naCircleRadius = 50, isolatedNaPoints = [], consecutiveNaPoints = [], showConsecutiveNa = true, naRecurrencePoints = [], showNaRecurrence = false, multiCarrierPoints = [], multiCarrierSummary, showMultiCarrier = false, analysisClusters = [], showAnalysisLayer = true, showMeasurementLayer = true, referencePoints = [], showReferenceLayer = true, showReferenceCircle = false, kyotenPoints = [], showKyotenLayer = true, routePolyline, markerStyles = DEFAULT_MARKER_STYLES }: MapViewProps) {
-  const polylineGroups = buildPolylineGroups(rawRows);
+  const polylineGroups = useMemo(() => buildPolylineGroups(rawRows), [rawRows]);
 
   // 不通区間ポリラインセグメント（連続不通非表示時は生成しない）
   const naPolylineSegments = useMemo(() => {
@@ -550,12 +618,18 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
     return buildNaPolylineSegments(rawRows, naFilter);
   }, [rawRows, naFilter, showConsecutiveNa]);
 
+  // 現在の地図表示範囲（ビューポートカリング用）
+  const [viewBounds, setViewBounds] = useState<MapBounds | null>(null);
+
+  // 表示範囲内に絞り込んだ計測点（[行, 元インデックス] のペア。元インデックスはkey安定化用）
+  const visibleData = useMemo(() => cullByBounds(data, viewBounds), [data, viewBounds]);
+  const visibleConsecutiveNa = useMemo(() => cullByBounds(consecutiveNaPoints, viewBounds), [consecutiveNaPoints, viewBounds]);
+  const visibleIsolatedNa = useMemo(() => cullByBounds(isolatedNaPoints, viewBounds), [isolatedNaPoints, viewBounds]);
+
   // ハイライト矩形の緯度範囲を計算（データ全体の緯度範囲 + 余白）
   const latBounds = useMemo(() => {
     if (data.length === 0) return { min: 0, max: 0 };
-    const lats = data.map((r) => r.latitude);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
+    const [minLat, maxLat] = minMax(data.map((r) => r.latitude));
     const padding = (maxLat - minLat) * 0.1 || 0.001;
     return { min: minLat - padding, max: maxLat + padding };
   }, [data]);
@@ -604,8 +678,10 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
         center={[centerLat, centerLng]}
         zoom={14}
         style={{ width: '100%', height: '100%' }}
+        preferCanvas
       >
         <FitBounds data={visiblePoints} />
+        <ViewBoundsTracker onChange={setViewBounds} />
         {onBoundsChange && <BoundsWatcher onChange={onBoundsChange} />}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -663,8 +739,8 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           />
         )}
 
-        {/* 通常計測ポイント（naOnly/再現率/マルチ比較モード時は非表示） */}
-        {showMeasurementLayer && !naOnly && !showNaRecurrence && !showMultiCarrier && data.map((row, i) => {
+        {/* 通常計測ポイント（naOnly/再現率/マルチ比較モード時は非表示。表示範囲内のみ描画） */}
+        {showMeasurementLayer && !naOnly && !showNaRecurrence && !showMultiCarrier && visibleData.map(([row, i]) => {
           const value = row[metric];
           if (value === null) return null;
           const ms = resolveCarrierStyle(markerStyles, 'measurement', row.carrier);
@@ -748,8 +824,8 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           );
         })}
 
-        {/* 連続不通ポイント — 再現率・マルチ比較モード時は非表示 */}
-        {showMeasurementLayer && !showNaRecurrence && !showMultiCarrier && consecutiveNaPoints.map((row, i) => {
+        {/* 連続不通ポイント — 再現率・マルチ比較モード時は非表示（表示範囲内のみ描画） */}
+        {showMeasurementLayer && !showNaRecurrence && !showMultiCarrier && visibleConsecutiveNa.map(([row, i]) => {
           const naStyleKey = naFilter === 'tcp' ? 'naTcp' as const : naFilter === 'udp' ? 'naUdp' as const : 'naBoth' as const;
           const naStyle = markerStyles[naStyleKey];
           const color = naStyle.color || '#6b7280';
@@ -764,8 +840,8 @@ export default function MapView({ data, metric, rawRows, fileCount, highlightLng
           return renderMarker(row, i, 'na-cons', color, groupMode, groupStyles, onPointClick, naStyle);
         })}
 
-        {/* 単点不通ポイント — 再現率・マルチ比較モード時は非表示 */}
-        {showMeasurementLayer && !showNaRecurrence && !showMultiCarrier && isolatedNaPoints.map((row, i) => {
+        {/* 単点不通ポイント — 再現率・マルチ比較モード時は非表示（表示範囲内のみ描画） */}
+        {showMeasurementLayer && !showNaRecurrence && !showMultiCarrier && visibleIsolatedNa.map(([row, i]) => {
           const naStyleKey = naFilter === 'tcp' ? 'naTcp' as const : naFilter === 'udp' ? 'naUdp' as const : 'naBoth' as const;
           const baseStyle = markerStyles[naStyleKey];
           const color = baseStyle.color || '#6b7280';

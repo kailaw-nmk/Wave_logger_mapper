@@ -534,7 +534,11 @@ export function binByLongitude(
   const avgLat = valid.reduce((s, r) => s + r.latitude, 0) / valid.length;
   const metersPerDegreeLng = 111320 * Math.cos((avgLat * Math.PI) / 180);
 
-  const minLng = Math.min(...valid.map((r) => r.longitude));
+  // 巨大配列で Math.min(...arr) がスタック超過するのを回避
+  let minLng = Infinity;
+  for (const r of valid) {
+    if (r.longitude < minLng) minLng = r.longitude;
+  }
   const degreesPerBin = binSizeM / metersPerDegreeLng;
 
   // ビンに振り分け
